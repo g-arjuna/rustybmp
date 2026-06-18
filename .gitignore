@@ -1,0 +1,30 @@
+target/
+runtime/
+*.duckdb
+*.duckdb.wal
+*.jsonl
+rustybmp.toml
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+dist/
+build/
+*.egg-info/
+.pytest_cache/
+
+# Node / UI
+ui/node_modules/
+ui/.svelte-kit/
+ui/build/
+ui/dist/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store

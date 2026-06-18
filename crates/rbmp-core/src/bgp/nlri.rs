@@ -1,0 +1,173 @@
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use ipnet::{Ipv4Net, Ipv6Net};
+use bytes::Buf;
+use crate::{Error, Result};
+use super::types::{Afi, Prefix, RouteDistinguisher};
+use smallvec::SmallVec;
+
+/// Decode length-prefixed NLRI from a byte buffer.
+/// Each entry is: 1 byte prefix_len, then ceil(prefix_len/8) prefix bytes.
+/// afi selects IPv4 vs IPv6 interpretation.
+pub fn decode_nlri(buf: &mut impl Buf, afi: Afi) -> Result<Vec<Prefix>> {
+    let mut prefixes = Vec::new();
+    while buf.remaining() > 0 {
+        let prefix_len = buf.get_u8();
+        let octets = (prefix_len as usize + 7) / 8;
+        if buf.remaining() < octets {
+            return Err(Error::UnexpectedEof { needed: octets, have: buf.remaining() });
+        }
+        let max_bits = match afi { Afi::Ipv6 => 128, _ => 32 };
+        if prefix_len > max_bits {
+            return Err(Error::InvalidPrefixLen { prefix_len, afi: afi.as_u16() });
+        }
+        let prefix = match afi {
+            Afi::Ipv6 => {
+                let mut addr = [0u8; 16];
+                let chunk = buf.copy_to_bytes(octets);
+                addr[..octets].copy_from_slice(&chunk);
+                let net = Ipv6Net::new(Ipv6Addr::from(addr), prefix_len)
+                    .map_err(|_| Error::InvalidPrefixLen { prefix_len, afi: afi.as_u16() })?;
+                Prefix::V6(net.trunc())
+            }
+            _ => {
+                let mut addr = [0u8; 4];
+                let chunk = buf.copy_to_bytes(octets);
+                addr[..octets].copy_from_slice(&chunk);
+                let net = Ipv4Net::new(Ipv4Addr::from(addr), prefix_len)
+                    .map_err(|_| Error::InvalidPrefixLen { prefix_len, afi: afi.as_u16() })?;
+                Prefix::V4(net.trunc())
+            }
+        };
+        prefixes.push(prefix);
+    }
+    Ok(prefixes)
+}
+
+/// Decode a labeled unicast NLRI (RFC 3107 / RFC 8277).
+/// Format: prefix_len(8) | label(24) ... | prefix_bits
+/// The prefix_len field includes the label bits.
+pub fn decode_labeled_nlri(buf: &mut impl Buf, afi: Afi) -> Result<Vec<Prefix>> {
+    let mut prefixes = Vec::new();
+    while buf.remaining() > 0 {
+        let total_len = buf.get_u8() as usize;
+        // Each label = 24 bits; read labels until bottom-of-stack bit set
+        let mut labels: SmallVec<[u32; 2]> = SmallVec::new();
+        loop {
+            if buf.remaining() < 3 {
+                return Err(Error::UnexpectedEof { needed: 3, have: buf.remaining() });
+            }
+            let b = buf.copy_to_bytes(3);
+            let raw = u32::from_be_bytes([0, b[0], b[1], b[2]]);
+            let label = raw >> 4;
+            let bos = raw & 0x01 != 0;
+            labels.push(label);
+            if bos { break; }
+        }
+        // remaining bits = total_len - 24*label_count (for simplicity assume 1 label = 24 bits)
+        let label_bits = labels.len() * 24;
+        let prefix_len = (total_len.saturating_sub(label_bits)) as u8;
+        let octets = (prefix_len as usize + 7) / 8;
+        if buf.remaining() < octets {
+            return Err(Error::UnexpectedEof { needed: octets, have: buf.remaining() });
+        }
+        let inner = match afi {
+            Afi::Ipv6 => {
+                let mut addr = [0u8; 16];
+                let chunk = buf.copy_to_bytes(octets);
+                addr[..octets].copy_from_slice(&chunk);
+                let net = Ipv6Net::new(Ipv6Addr::from(addr), prefix_len)
+                    .map_err(|_| Error::InvalidPrefixLen { prefix_len, afi: afi.as_u16() })?;
+                Prefix::V6(net.trunc())
+            }
+            _ => {
+                let mut addr = [0u8; 4];
+                let chunk = buf.copy_to_bytes(octets);
+                addr[..octets].copy_from_slice(&chunk);
+                let net = Ipv4Net::new(Ipv4Addr::from(addr), prefix_len)
+                    .map_err(|_| Error::InvalidPrefixLen { prefix_len, afi: afi.as_u16() })?;
+                Prefix::V4(net.trunc())
+            }
+        };
+        prefixes.push(Prefix::Labeled { prefix: Box::new(inner), labels });
+    }
+    Ok(prefixes)
+}
+
+/// Decode a VPN (L3VPN) NLRI (RFC 4364).
+/// Format: prefix_len(8) | label(24) | RD(64) | prefix_bits
+pub fn decode_vpn_nlri(buf: &mut impl Buf, afi: Afi) -> Result<Vec<Prefix>> {
+    let mut prefixes = Vec::new();
+    while buf.remaining() > 0 {
+        let total_len = buf.get_u8() as usize;
+        // Read 1 label (24 bits)
+        if buf.remaining() < 3 {
+            return Err(Error::UnexpectedEof { needed: 3, have: buf.remaining() });
+        }
+        let b = buf.copy_to_bytes(3);
+        let raw = u32::from_be_bytes([0, b[0], b[1], b[2]]);
+        let label = raw >> 4;
+        let labels: SmallVec<[u32; 2]> = SmallVec::from_slice(&[label]);
+        // Read RD (8 bytes)
+        if buf.remaining() < 8 {
+            return Err(Error::UnexpectedEof { needed: 8, have: buf.remaining() });
+        }
+        let rd_bytes: [u8; 8] = buf.copy_to_bytes(8).as_ref().try_into().unwrap();
+        let rd = RouteDistinguisher(rd_bytes);
+        // prefix_len covers label(24) + RD(64) + actual prefix bits
+        let prefix_len = (total_len.saturating_sub(24 + 64)) as u8;
+        let octets = (prefix_len as usize + 7) / 8;
+        if buf.remaining() < octets {
+            return Err(Error::UnexpectedEof { needed: octets, have: buf.remaining() });
+        }
+        let inner = match afi {
+            Afi::Ipv6 => {
+                let mut addr = [0u8; 16];
+                let chunk = buf.copy_to_bytes(octets);
+                addr[..octets].copy_from_slice(&chunk);
+                let net = Ipv6Net::new(Ipv6Addr::from(addr), prefix_len)
+                    .map_err(|_| Error::InvalidPrefixLen { prefix_len, afi: afi.as_u16() })?;
+                Prefix::V6(net.trunc())
+            }
+            _ => {
+                let mut addr = [0u8; 4];
+                let chunk = buf.copy_to_bytes(octets);
+                addr[..octets].copy_from_slice(&chunk);
+                let net = Ipv4Net::new(Ipv4Addr::from(addr), prefix_len)
+                    .map_err(|_| Error::InvalidPrefixLen { prefix_len, afi: afi.as_u16() })?;
+                Prefix::V4(net.trunc())
+            }
+        };
+        prefixes.push(Prefix::Vpn { rd, prefix: Box::new(inner), labels });
+    }
+    Ok(prefixes)
+}
+
+/// Decode MP_REACH next-hop address(es).
+/// Returns a Vec because IPv6 can have link-local second hop.
+pub fn decode_next_hops(buf: &mut impl Buf, afi: Afi) -> Result<Vec<IpAddr>> {
+    let nh_len = buf.get_u8() as usize;
+    if buf.remaining() < nh_len {
+        return Err(Error::UnexpectedEof { needed: nh_len, have: buf.remaining() });
+    }
+    let nh_bytes = buf.copy_to_bytes(nh_len);
+    let mut hops = Vec::new();
+    let hop_size = match afi { Afi::Ipv6 => 16, _ => 4 };
+    let mut pos = 0;
+    while pos + hop_size <= nh_bytes.len() {
+        let addr = match afi {
+            Afi::Ipv6 => {
+                let mut b = [0u8; 16];
+                b.copy_from_slice(&nh_bytes[pos..pos + 16]);
+                IpAddr::V6(Ipv6Addr::from(b))
+            }
+            _ => {
+                let mut b = [0u8; 4];
+                b.copy_from_slice(&nh_bytes[pos..pos + 4]);
+                IpAddr::V4(Ipv4Addr::from(b))
+            }
+        };
+        hops.push(addr);
+        pos += hop_size;
+    }
+    Ok(hops)
+}

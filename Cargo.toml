@@ -1,0 +1,90 @@
+[workspace]
+members = [
+    "crates/rbmp-core",
+    "crates/rbmp-rib",
+    "crates/rbmp-store",
+    "crates/rbmp-server",
+]
+resolver = "2"
+
+[workspace.package]
+version      = "0.1.0"
+edition      = "2024"
+authors      = ["Arjuna Ganesan"]
+license      = "Apache-2.0"
+rust-version = "1.85"
+
+[workspace.dependencies]
+# async runtime
+tokio        = { version = "1", features = ["full"] }
+tokio-util   = { version = "0.7", features = ["codec"] }
+
+# bytes / parsing
+bytes        = "1"
+byteorder    = "1"
+
+# networking
+ipnet        = { version = "2", features = ["serde"] }
+
+# serialization
+serde        = { version = "1", features = ["derive"] }
+serde_json   = "1"
+toml         = "0.8"
+
+# error handling
+thiserror    = "2"
+anyhow       = "1"
+
+# HTTP server
+axum         = { version = "0.8", features = ["macros"] }
+tower        = { version = "0.5", features = ["full"] }
+tower-http   = { version = "0.6", features = ["cors", "fs", "trace"] }
+hyper        = { version = "1", features = ["full"] }
+
+# observability
+tracing            = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+metrics            = "0.24"
+metrics-exporter-prometheus = "0.16"
+
+# time
+chrono       = { version = "0.4", features = ["serde"] }
+
+# concurrency
+dashmap      = "6"
+parking_lot  = "0.12"
+
+# DuckDB
+duckdb       = { version = "1", features = ["bundled"] }
+
+# misc
+uuid         = { version = "1", features = ["v4", "serde"] }
+smallvec     = { version = "1", features = ["serde"] }
+indexmap     = { version = "2", features = ["serde"] }
+
+# workspace crates
+rbmp-core    = { path = "crates/rbmp-core" }
+rbmp-rib     = { path = "crates/rbmp-rib" }
+rbmp-store   = { path = "crates/rbmp-store" }
+
+[profile.dev]
+opt-level       = 1
+debug           = 1
+codegen-units   = 16
+incremental     = true
+
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.release]
+opt-level       = 3
+lto             = "thin"
+codegen-units   = 1
+strip           = "symbols"
+incremental     = false
+
+[profile.ci]
+inherits        = "release"
+lto             = false
+codegen-units   = 4
+strip           = "none"

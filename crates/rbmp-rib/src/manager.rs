@@ -1,0 +1,191 @@
+use std::collections::HashMap;
+use std::net::IpAddr;
+use chrono::Utc;
+use tokio::sync::broadcast;
+use tracing::{info, warn, debug};
+use rbmp_core::bmp::types::{BmpMessage, BmpPayload};
+use rbmp_core::bgp::types::BgpCapability;
+use crate::event::{RibEvent, RibEventPayload, RibEventPayload::*, RouteChange, RouteAction};
+use crate::session::{BmpSession, PeerSession};
+use crate::table::{RibEntry, RibTable};
+
+/// Central RIB manager: owns all per-speaker sessions and per-peer route tables.
+/// Driven by BmpMessage from the receiver; emits RibEvents to subscribers.
+pub struct RibManager {
+    speakers: HashMap<IpAddr, BmpSession>,
+    /// peer_addr → RIB table (across all speakers; a peer is globally unique by address)
+    ribs: HashMap<IpAddr, RibTable>,
+    event_tx: broadcast::Sender<RibEvent>,
+}
+
+impl RibManager {
+    pub fn new(event_capacity: usize) -> (Self, broadcast::Receiver<RibEvent>) {
+        let (tx, rx) = broadcast::channel(event_capacity);
+        (Self {
+            speakers: HashMap::new(),
+            ribs:     HashMap::new(),
+            event_tx: tx,
+        }, rx)
+    }
+
+    pub fn subscribe(&self) -> broadcast::Receiver<RibEvent> {
+        self.event_tx.subscribe()
+    }
+
+    /// Feed a parsed BmpMessage into the RIB. Emits RibEvents on state changes.
+    pub fn process(&mut self, msg: BmpMessage) {
+        let speaker = msg.speaker_addr;
+        let now     = msg.received_at;
+
+        match msg.payload {
+            BmpPayload::Initiation { sys_name, sys_descr, .. } => {
+                let session = self.speakers.entry(speaker).or_insert_with(|| {
+                    info!(%speaker, "BMP speaker connected");
+                    BmpSession::new(speaker, now)
+                });
+                session.sys_name  = sys_name.clone();
+                session.sys_descr = sys_descr.clone();
+                self.emit(speaker, SpeakerUp { sys_name, sys_descr });
+            }
+            BmpPayload::Termination { reason_code, reason_text } => {
+                if let Some(mut sess) = self.speakers.remove(&speaker) {
+                    // Clear all peer routes for this speaker
+                    for peer_addr in sess.peers.keys() {
+                        self.ribs.remove(peer_addr);
+                    }
+                    info!(%speaker, %reason_code, "BMP speaker disconnected");
+                }
+                let reason = reason_text.unwrap_or_else(|| format!("code={reason_code}"));
+                self.emit(speaker, SpeakerDown { reason });
+            }
+            BmpPayload::PeerUp(pu) => {
+                let peer_addr = pu.peer_header.peer_address;
+                let caps: Vec<BgpCapability> = pu.recv_open.capabilities.clone();
+                let cap_names: Vec<String> = caps.iter().map(|c| format!("{:?}", c.code())).collect();
+
+                let speaker_sess = self.speakers.entry(speaker).or_insert_with(|| BmpSession::new(speaker, now));
+                let peer = speaker_sess.peers.entry(peer_addr).or_insert_with(|| PeerSession::new(&pu.peer_header));
+                peer.on_up(pu.sent_open.asn, pu.peer_header.peer_as as u16, caps, now);
+
+                info!(%speaker, %peer_addr, peer_as = pu.peer_header.peer_as, "BGP peer up");
+                self.emit(speaker, PeerUp {
+                    peer_header:  pu.peer_header,
+                    local_asn:    pu.sent_open.asn,
+                    remote_asn:   pu.recv_open.asn,
+                    hold_time:    pu.recv_open.hold_time,
+                    capabilities: cap_names,
+                });
+            }
+            BmpPayload::PeerDown { peer_header, reason } => {
+                let peer_addr = peer_header.peer_address;
+                let reason_str = format!("{:?}", reason);
+
+                if let Some(sess) = self.speakers.get_mut(&speaker) {
+                    if let Some(peer) = sess.peers.get_mut(&peer_addr) {
+                        peer.on_down(now);
+                    }
+                }
+                self.ribs.entry(peer_addr).or_default().clear_all();
+                info!(%speaker, %peer_addr, %reason_str, "BGP peer down");
+                self.emit(speaker, PeerDown { peer_header, reason: reason_str });
+            }
+            BmpPayload::RouteMonitoring { peer_header, update } => {
+                let peer_addr = peer_header.peer_address;
+                let rib_type  = peer_header.rib_type;
+
+                // Check for End-of-RIB
+                if update.is_eor() {
+                    let afi_safi = update.attributes.mp_unreach
+                        .as_ref().map(|u| u.afi_safi.to_string())
+                        .unwrap_or_else(|| "ipv4-unicast".to_string());
+                    debug!(%speaker, %peer_addr, %afi_safi, "End-of-RIB received");
+                    self.emit(speaker, EndOfRib { peer_header, afi_safi });
+                    return;
+                }
+
+                let rib = self.ribs.entry(peer_addr).or_default();
+
+                // Process withdrawals
+                for prefix in update.all_withdrawn() {
+                    rib.remove(rib_type, prefix);
+                    let ev = RouteChange {
+                        action:      RouteAction::Withdraw,
+                        peer_header: peer_header.clone(),
+                        rib_type,
+                        prefix:      prefix.clone(),
+                        attributes:  None,
+                    };
+                    self.event_tx.send(RibEvent {
+                        id:          uuid::Uuid::new_v4(),
+                        occurred_at: now,
+                        speaker,
+                        payload:     RibEventPayload::RouteChange(ev),
+                    }).ok();
+                }
+
+                // Process announcements
+                for prefix in update.all_announced() {
+                    let entry = RibEntry {
+                        prefix:      prefix.clone(),
+                        attributes:  update.attributes.clone(),
+                        received_at: now,
+                        peer_addr,
+                        peer_as:     peer_header.peer_as,
+                    };
+                    rib.insert(rib_type, entry);
+                    let ev = RouteChange {
+                        action:      RouteAction::Announce,
+                        peer_header: peer_header.clone(),
+                        rib_type,
+                        prefix:      prefix.clone(),
+                        attributes:  Some(update.attributes.clone()),
+                    };
+                    self.event_tx.send(RibEvent {
+                        id:          uuid::Uuid::new_v4(),
+                        occurred_at: now,
+                        speaker,
+                        payload:     RibEventPayload::RouteChange(ev),
+                    }).ok();
+                }
+            }
+            BmpPayload::StatsReport { peer_header, stats } => {
+                let counters = stats.iter().map(|s| (s.name.to_string(), s.value)).collect();
+                self.emit(speaker, Stats { peer_header, counters });
+            }
+            BmpPayload::RouteMirroring { .. } => {
+                // TODO: forward mirrored PDUs to secondary parser
+            }
+        }
+    }
+
+    fn emit(&self, speaker: IpAddr, payload: RibEventPayload) {
+        let _ = self.event_tx.send(RibEvent {
+            id:          uuid::Uuid::new_v4(),
+            occurred_at: Utc::now(),
+            speaker,
+            payload,
+        });
+    }
+
+    // ─── Query surface ────────────────────────────────────────────────────────
+
+    pub fn speakers(&self) -> Vec<&BmpSession> {
+        self.speakers.values().collect()
+    }
+
+    pub fn speaker(&self, addr: IpAddr) -> Option<&BmpSession> {
+        self.speakers.get(&addr)
+    }
+
+    pub fn rib_for_peer(&self, peer: IpAddr) -> Option<&RibTable> {
+        self.ribs.get(&peer)
+    }
+
+    pub fn total_routes(&self) -> usize {
+        self.ribs.values().flat_map(|r| r.all_prefixes()).count()
+    }
+
+    pub fn total_peers_up(&self) -> usize {
+        self.speakers.values().map(|s| s.up_peer_count()).sum()
+    }
+}
