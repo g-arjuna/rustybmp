@@ -1,5 +1,6 @@
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use bytes::Buf;
+use serde::{Deserialize, Serialize};
 use crate::{Error, Result};
 use super::types::{
     BgpLsNlri, BgpLsNlriType, BgpLsProtocol, BgpLsReachNlri, BgpLsUnreachNlri,
@@ -226,6 +227,303 @@ fn decode_prefix_nlri(
     Ok(BgpLsNlri::Prefix { protocol, identifier, local_node, prefix })
 }
 
+// ─── BGP-LS path attribute (type 29, RFC 7752 §3.3) ─────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SrCapabilities {
+    pub flags:       u8,
+    pub srgb_ranges: Vec<(u32, u32)>,  // (base, range)
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SrLocalBlock {
+    pub flags:       u8,
+    pub srlb_ranges: Vec<(u32, u32)>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AdjSid {
+    pub flags:  u8,
+    pub weight: u8,
+    pub label:  u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LanAdjSid {
+    pub flags:       u8,
+    pub weight:      u8,
+    pub neighbor_id: [u8; 7],
+    pub label:       u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LsPrefixSid {
+    pub flags:     u8,
+    pub algorithm: u8,
+    pub label:     u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FlexAlgoDef {
+    pub algo_id:     u8,
+    pub metric_type: u8,
+    pub calc_type:   u8,
+    pub priority:    u8,
+    pub exclude_any: Option<u32>,
+    pub include_any: Option<u32>,
+    pub include_all: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FlexAlgoPrefixMetric {
+    pub algo_id: u8,
+    pub metric:  u32,
+}
+
+/// Decoded BGP-LS path attribute (attribute type 29).
+/// Populated from `parse_bgpls_attribute` and stored in `PathAttributes.bgpls_attr`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct BgpLsAttribute {
+    // ── Node attributes ──────────────────────────────────────────────────────
+    pub node_flags:          Option<u8>,
+    pub node_name:           Option<String>,
+    pub isis_area_id:        Option<Vec<u8>>,
+    pub ipv4_router_id:      Option<Ipv4Addr>,
+    pub ipv6_router_id:      Option<Ipv6Addr>,
+    pub sr_capabilities:     Option<SrCapabilities>,
+    pub sr_algorithm:        Vec<u8>,
+    pub sr_local_block:      Option<SrLocalBlock>,
+    // ── Link attributes ──────────────────────────────────────────────────────
+    pub link_metric_igp:     Option<u32>,
+    pub link_metric_te:      Option<u32>,
+    pub admin_group:         Option<u32>,
+    pub max_bandwidth:       Option<f32>,
+    pub max_reservable_bw:   Option<f32>,
+    pub unreserved_bw:       Vec<f32>,
+    pub srlg:                Vec<u32>,
+    pub adj_sid:             Vec<AdjSid>,
+    pub lan_adj_sid:         Vec<LanAdjSid>,
+    pub peer_node_sid:       Option<u32>,
+    pub peer_adj_sid:        Option<u32>,
+    pub peer_set_sid:        Option<u32>,
+    // ── Prefix attributes ────────────────────────────────────────────────────
+    pub prefix_metric:       Option<u32>,
+    pub ospf_fwd_addr:       Option<IpAddr>,
+    pub prefix_sid:          Vec<LsPrefixSid>,
+    // ── Flex Algorithm (RFC 9350) ─────────────────────────────────────────────
+    pub flex_algo_defs:            Vec<FlexAlgoDef>,
+    pub flex_algo_prefix_metrics:  Vec<FlexAlgoPrefixMetric>,
+    // ── Unknown TLVs preserved ───────────────────────────────────────────────
+    pub unknown_tlvs:        Vec<(u16, Vec<u8>)>,
+}
+
+/// Parse BGP-LS path attribute (type 29) — TLV encoded per RFC 7752 §3.3.
+/// Returns a `BgpLsAttribute`; unknown TLVs are preserved in `unknown_tlvs`.
+pub fn parse_bgpls_attribute(buf: &[u8]) -> BgpLsAttribute {
+    let mut attr = BgpLsAttribute::default();
+    let mut pos  = 0;
+
+    while pos + 4 <= buf.len() {
+        let tlv_type = u16::from_be_bytes([buf[pos], buf[pos+1]]);
+        let tlv_len  = u16::from_be_bytes([buf[pos+2], buf[pos+3]]) as usize;
+        pos += 4;
+        if pos + tlv_len > buf.len() { break; }
+        let data = &buf[pos..pos+tlv_len];
+        pos += tlv_len;
+
+        match tlv_type {
+            // ── Node attributes ──────────────────────────────────────────────
+            // TLV 1024: Node Flag Bits
+            1024 if tlv_len >= 1 => attr.node_flags = Some(data[0]),
+            // TLV 1026: Node Name (IS-IS TLV 137 hostname)
+            1026 => attr.node_name = Some(String::from_utf8_lossy(data).to_string()),
+            // TLV 1027: IS-IS Area Identifier
+            1027 => attr.isis_area_id = Some(data.to_vec()),
+            // TLV 1028: IPv4 Router-ID of Local Node
+            1028 if tlv_len == 4 => {
+                attr.ipv4_router_id = Some(Ipv4Addr::from([data[0], data[1], data[2], data[3]]));
+            }
+            // TLV 1029: IPv6 Router-ID of Local Node
+            1029 if tlv_len == 16 => {
+                let mut b = [0u8; 16]; b.copy_from_slice(data);
+                attr.ipv6_router_id = Some(Ipv6Addr::from(b));
+            }
+            // TLV 1034: SR Capabilities (RFC 9085 §2.1.2)
+            // Value: flags(1) + reserved(1) + [range(3) + SID-sub-TLV(type(1)+len(1)+value(3))]...
+            1034 if tlv_len >= 2 => {
+                let flags = data[0];
+                let mut ranges = Vec::new();
+                let mut i = 2; // skip flags(1) + reserved(1)
+                // Each SRGB block: range(3) + SID-sub-TLV type(1)+len(1)+base(3) = 8 bytes
+                while i + 8 <= data.len() {
+                    let range = u32::from_be_bytes([0, data[i], data[i+1], data[i+2]]);
+                    // data[i+3] = SID sub-TLV type, data[i+4] = SID sub-TLV len (=3)
+                    let base = u32::from_be_bytes([0, data[i+5], data[i+6], data[i+7]]);
+                    ranges.push((base, range));
+                    i += 8;
+                }
+                attr.sr_capabilities = Some(SrCapabilities { flags, srgb_ranges: ranges });
+            }
+            // TLV 1035: SR Algorithm
+            1035 => attr.sr_algorithm = data.to_vec(),
+            // TLV 1036: SR Local Block (SRLB)
+            1036 if tlv_len >= 2 => {
+                let flags = data[0];
+                let mut ranges = Vec::new();
+                let mut i = 2;
+                while i + 6 <= data.len() {
+                    let range = u32::from_be_bytes([0, data[i], data[i+1], data[i+2]]);
+                    let base  = if i + 6 <= data.len() {
+                        u32::from_be_bytes([0, data[i+3], data[i+4], data[i+5]])
+                    } else { 0 };
+                    ranges.push((base, range));
+                    i += 6;
+                }
+                attr.sr_local_block = Some(SrLocalBlock { flags, srlb_ranges: ranges });
+            }
+            // ── Link attributes ──────────────────────────────────────────────
+            // TLV 1081: Max Link Bandwidth (IEEE 754 float, bytes/sec)
+            1081 if tlv_len == 4 => {
+                attr.max_bandwidth = Some(f32::from_be_bytes([data[0], data[1], data[2], data[3]]));
+            }
+            // TLV 1082: Max Reservable Link Bandwidth
+            1082 if tlv_len == 4 => {
+                attr.max_reservable_bw = Some(f32::from_be_bytes([data[0], data[1], data[2], data[3]]));
+            }
+            // TLV 1083: Unreserved Bandwidth (8 × 4-byte IEEE 754 floats)
+            1083 if tlv_len == 32 => {
+                for i in 0..8 {
+                    attr.unreserved_bw.push(f32::from_be_bytes(
+                        [data[i*4], data[i*4+1], data[i*4+2], data[i*4+3]]));
+                }
+            }
+            // TLV 1088: TE Admin Group / Link Color
+            1088 if tlv_len == 4 => {
+                attr.admin_group = Some(u32::from_be_bytes([data[0], data[1], data[2], data[3]]));
+            }
+            // TLV 1092: TE Default Metric
+            1092 if tlv_len == 4 => {
+                attr.link_metric_te = Some(u32::from_be_bytes([data[0], data[1], data[2], data[3]]));
+            }
+            // TLV 1094: SRLG (Shared Risk Link Group) — array of u32
+            1094 => {
+                let mut i = 0;
+                while i + 4 <= data.len() {
+                    attr.srlg.push(u32::from_be_bytes([data[i], data[i+1], data[i+2], data[i+3]]));
+                    i += 4;
+                }
+            }
+            // TLV 1095: IGP Metric (variable 1-3 bytes)
+            1095 if tlv_len >= 1 && tlv_len <= 4 => {
+                let metric = match tlv_len {
+                    1 => data[0] as u32,
+                    2 => u16::from_be_bytes([data[0], data[1]]) as u32,
+                    3 => u32::from_be_bytes([0, data[0], data[1], data[2]]),
+                    _ => u32::from_be_bytes([data[0], data[1], data[2], data[3]]),
+                };
+                attr.link_metric_igp = Some(metric);
+            }
+            // TLV 1099: Adjacency SID (RFC 8667 §2.2.1)
+            1099 if tlv_len >= 7 => {
+                let flags  = data[0];
+                let weight = data[1];
+                // bytes 2-3 reserved, then 3-byte label
+                let label  = u32::from_be_bytes([0, data[4], data[5], data[6]]);
+                attr.adj_sid.push(AdjSid { flags, weight, label });
+            }
+            // TLV 1100: LAN Adjacency SID — flags(1)+weight(1)+neighbor_id(7)+reserved(2)+label(3) = 14 bytes
+            1100 if tlv_len >= 14 => {
+                let flags  = data[0];
+                let weight = data[1];
+                let mut neighbor_id = [0u8; 7];
+                neighbor_id.copy_from_slice(&data[2..9]);
+                // bytes 9-10 reserved, bytes 11-13 = 3-byte label
+                let label = u32::from_be_bytes([0, data[11], data[12], data[13]]);
+                attr.lan_adj_sid.push(LanAdjSid { flags, weight, neighbor_id, label });
+            }
+            // TLV 1101: Peer Node SID (BGP EPE)
+            1101 if tlv_len >= 7 => {
+                attr.peer_node_sid = Some(u32::from_be_bytes([0, data[4], data[5], data[6]]));
+            }
+            // TLV 1102: Peer Adjacency SID (BGP EPE)
+            1102 if tlv_len >= 7 => {
+                attr.peer_adj_sid = Some(u32::from_be_bytes([0, data[4], data[5], data[6]]));
+            }
+            // TLV 1103: Peer Set SID (BGP EPE)
+            1103 if tlv_len >= 7 => {
+                attr.peer_set_sid = Some(u32::from_be_bytes([0, data[4], data[5], data[6]]));
+            }
+            // ── Prefix attributes ────────────────────────────────────────────
+            // TLV 1155: Prefix Metric
+            1155 if tlv_len == 4 => {
+                attr.prefix_metric = Some(u32::from_be_bytes([data[0], data[1], data[2], data[3]]));
+            }
+            // TLV 1156: OSPF Forwarding Address
+            1156 if tlv_len == 4 => {
+                attr.ospf_fwd_addr = Some(IpAddr::V4(Ipv4Addr::from([data[0], data[1], data[2], data[3]])));
+            }
+            1156 if tlv_len == 16 => {
+                let mut b = [0u8; 16]; b.copy_from_slice(data);
+                attr.ospf_fwd_addr = Some(IpAddr::V6(Ipv6Addr::from(b)));
+            }
+            // TLV 1158: Prefix-SID (BGP-LS variant, RFC 8667 §2.1)
+            1158 if tlv_len >= 7 => {
+                let flags     = data[0];
+                let algorithm = data[1];
+                // bytes 2-3 reserved, then 3-byte label or 4-byte index
+                let label = if tlv_len >= 8 {
+                    u32::from_be_bytes([data[4], data[5], data[6], data[7]])
+                } else {
+                    u32::from_be_bytes([0, data[4], data[5], data[6]])
+                };
+                attr.prefix_sid.push(LsPrefixSid { flags, algorithm, label });
+            }
+            // ── Flex Algorithm (RFC 9350) ─────────────────────────────────────
+            // TLV 1039: Flex Algorithm Definition
+            1039 if tlv_len >= 4 => {
+                let algo_id     = data[0];
+                let metric_type = data[1];
+                let calc_type   = data[2];
+                let priority    = data[3];
+                let mut exclude_any = None;
+                let mut include_any = None;
+                let mut include_all = None;
+                let mut i = 4;
+                // Optional sub-TLVs follow
+                while i + 4 <= data.len() {
+                    let st   = u16::from_be_bytes([data[i], data[i+1]]);
+                    let slen = u16::from_be_bytes([data[i+2], data[i+3]]) as usize;
+                    i += 4;
+                    if i + slen > data.len() { break; }
+                    let sv = &data[i..i+slen]; i += slen;
+                    if slen >= 4 {
+                        let v = u32::from_be_bytes([sv[0], sv[1], sv[2], sv[3]]);
+                        match st {
+                            1 => exclude_any = Some(v),
+                            2 => include_any = Some(v),
+                            3 => include_all = Some(v),
+                            _ => {}
+                        }
+                    }
+                }
+                attr.flex_algo_defs.push(FlexAlgoDef {
+                    algo_id, metric_type, calc_type, priority,
+                    exclude_any, include_any, include_all,
+                });
+            }
+            // TLV 1044: Flex Algorithm Prefix Metric
+            1044 if tlv_len >= 5 => {
+                attr.flex_algo_prefix_metrics.push(FlexAlgoPrefixMetric {
+                    algo_id: data[0],
+                    metric:  u32::from_be_bytes([data[1], data[2], data[3], data[4]]),
+                });
+            }
+            _ => attr.unknown_tlvs.push((tlv_type, data.to_vec())),
+        }
+    }
+    attr
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -243,6 +541,63 @@ mod tests {
         let result = decode_bgpls_nlri(&buf).unwrap();
         assert_eq!(result.len(), 1);
         assert!(matches!(result[0], BgpLsNlri::Unknown { nlri_type: 99, .. }));
+    }
+
+    #[test]
+    fn test_bgpls_attr_link_metrics_srlg_adjsid() {
+        let mut buf = Vec::new();
+        // TLV 1095: IGP Metric = 100 (3 bytes)
+        buf.extend_from_slice(&1095u16.to_be_bytes());
+        buf.extend_from_slice(&3u16.to_be_bytes());
+        buf.extend_from_slice(&[0, 0, 100]);
+        // TLV 1094: SRLG with two groups: 10, 20
+        buf.extend_from_slice(&1094u16.to_be_bytes());
+        buf.extend_from_slice(&8u16.to_be_bytes());
+        buf.extend_from_slice(&10u32.to_be_bytes());
+        buf.extend_from_slice(&20u32.to_be_bytes());
+        // TLV 1099: Adjacency SID — flags(1)+weight(1)+reserved(2)+label(3) = 7 bytes
+        buf.extend_from_slice(&1099u16.to_be_bytes());
+        buf.extend_from_slice(&7u16.to_be_bytes());
+        buf.extend_from_slice(&[0x30, 0x01, 0, 0, 0, 0x10, 0x00]); // label = 0x001000 = 4096
+        let attr = parse_bgpls_attribute(&buf);
+        assert_eq!(attr.link_metric_igp, Some(100));
+        assert_eq!(attr.srlg, vec![10, 20]);
+        assert_eq!(attr.adj_sid.len(), 1);
+        assert_eq!(attr.adj_sid[0].label, 0x001000);
+    }
+
+    #[test]
+    fn test_bgpls_attr_node_name() {
+        let name = b"pe1.example.com";
+        let mut buf = Vec::new();
+        buf.extend_from_slice(&1026u16.to_be_bytes());
+        buf.extend_from_slice(&(name.len() as u16).to_be_bytes());
+        buf.extend_from_slice(name);
+        let attr = parse_bgpls_attribute(&buf);
+        assert_eq!(attr.node_name.as_deref(), Some("pe1.example.com"));
+    }
+
+    #[test]
+    fn test_bgpls_attr_sr_capabilities() {
+        // RFC 9085 §2.1.2: TLV 1034 value = flags(1)+reserved(1)+[range(3)+SID-sub-TLV(5)...]
+        // SID sub-TLV: type(1)=1, length(1)=3, value(3)=base label
+        let mut buf = Vec::new();
+        buf.extend_from_slice(&1034u16.to_be_bytes());
+        buf.extend_from_slice(&10u16.to_be_bytes()); // value length = 10
+        buf.push(0xC0); // flags: I-flag + V-flag
+        buf.push(0);    // reserved
+        // Range sub-TLV: type(1)=9, length(1)=3, range(3)=62500 (0x00F424)
+        buf.extend_from_slice(&[0, 0xF4, 0x24]); // range bytes (raw, no sub-TLV wrapper used here)
+        // SID/Label sub-TLV: type(1)=1, length(1)=3, base(3)=256 (0x000100)
+        buf.extend_from_slice(&[1, 3]);           // sub-TLV type=1, len=3
+        buf.extend_from_slice(&[0, 0x01, 0x00]);  // base = 256
+        let attr = parse_bgpls_attribute(&buf);
+        let caps = attr.sr_capabilities.unwrap();
+        assert_eq!(caps.flags, 0xC0);
+        assert_eq!(caps.srgb_ranges.len(), 1);
+        let (base, range) = caps.srgb_ranges[0];
+        assert_eq!(range, 62500);
+        assert_eq!(base, 256);
     }
 
     #[test]

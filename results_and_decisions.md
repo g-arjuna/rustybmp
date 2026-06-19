@@ -80,7 +80,102 @@ After:  RibManager::event_sender() returns a clone of the real sender.
 
 ---
 
-## Known Gaps / Deferred to RV2
+## Known Gaps / Deferred to RV2 (resolved in RV2/RV3)
+
+- Add-Path path_id parsing from NLRI → ✅ Done RV2
+- LLGR stale tracking → ✅ Done RV3 (Bundle B)
+- BGP-LS full decode → ✅ Done RV3 (Bundle A)
+- Route Target ExtComm → ✅ Done RV2
+- EVPN events table writer → ✅ Done RV2
+- rbmppy `peering.py` stub → ✅ Done RV2 (PeeringDB + RPKI wrappers)
+
+---
+
+## Session Log — 2026-06-19 Sprint RV2
+
+**Completed**: Add-Path NLRI parsing, EVPN withdraw, ExtComm/RT decode, BGP-LS NLRI scaffolding, RPKI RTR client scaffold, analytics rewrite (ZScore, HijackDetector, RouteLeakDetector, FlapScorer). 38 tests pass.
+
+---
+
+## Session Log — 2026-06-19 Sprint RV3 (Bundles A-G)
+
+### Bundles Completed
+
+| Bundle | Epic | Outcome |
+|--------|------|---------|
+| A | RV3-1,2 | SR Policy SAFI73 (types A-K), EVPN types 6-11, BGP-LS full TLVs, RTC SAFI132 |
+| B | RV3-8,9 | YAML filter DSL, LLGR state machine (Normal/StaleMarked/Deleted) |
+| C | RV3-4,7 | DNS PTR cache (TTL-bounded, OS resolver), BMP proxy (tee + upstream forward) |
+| D | RV3-5   | Kafka output crate (rdkafka FutureProducer, lz4, typed topics) |
+| E | RV3-6   | MRT crate (RFC 6396 reader + writer, BGP4MP + TABLE_DUMP_V2, 8 tests) |
+| F | RV3-3   | Python: rpki.py (RtrVrpCache, RFC 6811), internet.py (IRR/RDAP/BGP.Tools), detectors.py (4 detectors + pipeline) |
+| G | RV3-10  | Distributed: CollectorEnvelope (MessagePack), rbmp-collector binary, Core TCP listener :5001, schema collector_id |
+
+**Final test count**: 49 Rust tests, 0 failures.
+
+#### Decisions Made (RV3)
+
+| # | Decision | Rationale |
+|---|----------|-----------|
+| D9 | `body_len` in MRT writer must include AFI u16 (was missing +2) | Root cause of all reader test failures — MRT header declared 2 fewer bytes than were written, causing parse under-reads. Fixed in `write_bgp4mp_message` and `write_bgp4mp_state_change`. |
+| D10 | Collector protocol uses `rmp-serde` (MessagePack) over raw TCP with 4-byte BE length prefix | Compact binary, self-describing, zero-copy decode with `rmp_serde::from_slice`. Simpler than Protobuf for this use case. Max frame 8 MiB. |
+| D11 | `rbmp-collector` uses `try_send()` to a bounded `mpsc::channel` as ring buffer | Non-blocking drop on overflow is correct for an edge collector — it is better to lose PDUs than to back-pressure the BMP TCP session and cause router disconnect. |
+| D12 | `handle_collector_conn` re-parses raw BMP bytes on the Core side | Core always re-parses; collector only frames+forwards. This keeps the collector binary minimal and avoids sending structs over the wire. |
+| D13 | `detectors.py` extracts `origin_as` by scanning the last integer token in `RouteEvent.as_path` | `RouteEvent` has `as_path: Optional[str]` (space-separated), not a structured list. `_origin_as()` and `_as_path_list()` helpers added. |
+| D14 | `RtrVrpCache` uses sorted in-process list; validation via linear scan | VRP tables are ~400K entries; linear scan is O(n) but fast enough for alert pipelines. Production upgrade: use an interval tree if needed. |
+
+---
+
+## Files Changed — RV2
+
+### Modified files
+- `crates/rbmp-core/src/bgp/types.rs` — Add-Path struct, ExtComm types, BGP-LS NLRI stubs
+- `crates/rbmp-core/src/bgp/update.rs` — path_id parsing from NLRI
+- `crates/rbmp-core/src/bgp/attributes.rs` — ExtComm full decode, RT community
+- `crates/rbmp-core/src/bgp/bgpls.rs` — NLRI type scaffolding
+- `crates/rbmp-enrichment/src/rtr.rs` — RTR client scaffold
+- `bmppy/rbmppy/analytics.py` — ZScoreMonitor, HijackDetector, RouteLeakDetector, FlapScorer
+
+---
+
+## Files Changed — RV3
+
+### New crates
+- `crates/rbmp-kafka/` — Kafka output (producer, sink, topics, error)
+- `crates/rbmp-mrt/` — MRT import/export (types, reader, writer, error)
+
+### New Rust files
+- `crates/rbmp-core/src/bgp/srpolicy.rs` — SR Policy NLRI SAFI 73
+- `crates/rbmp-core/src/collector_protocol.rs` — MessagePack framing protocol
+- `crates/rbmp-server/src/dns.rs` — DNS PTR cache
+- `crates/rbmp-server/src/proxy.rs` — BMP proxy
+- `crates/rbmp-server/src/bin/collector.rs` — `rbmp-collector` edge binary
+
+### New Python files
+- `bmppy/rbmppy/rpki.py` — RtrVrpCache, RFC 6811 validation, poll_rtr_cache()
+- `bmppy/rbmppy/internet.py` — IrrClient, RdapClient, BgpToolsClient, resolve_origin()
+- `bmppy/rbmppy/detectors.py` — OriginChangeDetector, RouteLeakDetector, MEDOscillationDetector, BGPHijackDetector, DetectorPipeline
+
+### Modified Rust files
+- `Cargo.toml` — rdkafka, rmp-serde workspace deps; rbmp-kafka, rbmp-mrt members
+- `crates/rbmp-core/Cargo.toml` — added rmp-serde, tokio
+- `crates/rbmp-core/src/lib.rs` — pub mod collector_protocol
+- `crates/rbmp-core/src/bgp/evpn.rs` — EVPN types 6-11
+- `crates/rbmp-core/src/bgp/bgpls.rs` — full link/node/prefix attribute TLVs
+- `crates/rbmp-core/src/bgp/types.rs` — SR Policy Safi, RTC, LLGR state
+- `crates/rbmp-core/src/bgp/attributes.rs` — wire type 29 BGP-LS, SR Policy dispatch
+- `crates/rbmp-rib/src/manager.rs` — filter engine, LLGR handling
+- `crates/rbmp-rib/src/session.rs` — LLGR state machine
+- `crates/rbmp-store/src/schema.rs` — collector_id in route_events/peer_events/speaker_events
+- `crates/rbmp-server/Cargo.toml` — rbmp-kafka dep, rbmp-collector [[bin]]
+- `crates/rbmp-server/src/config.rs` — KafkaConfig, DnsConfig, ProxyConfig
+- `crates/rbmp-server/src/main.rs` — Kafka sink, DNS, proxy, collector listener
+- `crates/rbmp-server/src/receiver.rs` — DNS PTR lookup on connect
+- `bmppy/rbmppy/__init__.py` — export rpki/internet/detectors symbols
+
+---
+
+## Known Gaps / Deferred to RV4
 
 - Add-Path path_id parsing from NLRI (NLRI decoder needs changes)
 - LLGR stale tracking (capability parsed, state machine not yet)

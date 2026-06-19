@@ -1,0 +1,2549 @@
+diff --git a/Cargo.lock b/Cargo.lock
+index 6bdaae4..e33ec5e 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -1328,6 +1328,18 @@ version = "0.2.16"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "b6d2cec3eae94f9f509c767b45932f1ada8350c4bdb85af2fcab4a3c14807981"
+ 
++[[package]]
++name = "libz-sys"
++version = "1.1.29"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "85bc9657773828b90eeb625adff10eeac83cc21bbfd8e23a03eaa8a33c9e28d9"
++dependencies = [
++ "cc",
++ "libc",
++ "pkg-config",
++ "vcpkg",
++]
++
+ [[package]]
+ name = "linux-raw-sys"
+ version = "0.4.15"
+@@ -1519,6 +1531,28 @@ dependencies = [
+  "libm",
+ ]
+ 
++[[package]]
++name = "num_enum"
++version = "0.7.6"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "5d0bca838442ec211fa11de3a8b0e0e8f3a4522575b5c4c06ed722e005036f26"
++dependencies = [
++ "num_enum_derive",
++ "rustversion",
++]
++
++[[package]]
++name = "num_enum_derive"
++version = "0.7.6"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "680998035259dcfcafe653688bf2aa6d3e2dc05e98be6ab46afb089dc84f1df8"
++dependencies = [
++ "proc-macro-crate",
++ "proc-macro2",
++ "quote",
++ "syn 2.0.118",
++]
++
+ [[package]]
+ name = "once_cell"
+ version = "1.21.4"
+@@ -1827,10 +1861,12 @@ dependencies = [
+  "hex-literal",
+  "indexmap",
+  "ipnet",
++ "rmp-serde",
+  "serde",
+  "serde_json",
+  "smallvec",
+  "thiserror 2.0.18",
++ "tokio",
+  "tracing",
+  "uuid",
+ ]
+@@ -1851,6 +1887,40 @@ dependencies = [
+  "tracing",
+ ]
+ 
++[[package]]
++name = "rbmp-kafka"
++version = "0.1.0"
++dependencies = [
++ "chrono",
++ "metrics",
++ "rbmp-core",
++ "rbmp-rib",
++ "rdkafka",
++ "serde",
++ "serde_json",
++ "thiserror 2.0.18",
++ "tokio",
++ "tokio-util",
++ "tracing",
++ "uuid",
++]
++
++[[package]]
++name = "rbmp-mrt"
++version = "0.1.0"
++dependencies = [
++ "bytes",
++ "chrono",
++ "ipnet",
++ "rbmp-core",
++ "rbmp-rib",
++ "serde",
++ "serde_json",
++ "thiserror 2.0.18",
++ "tokio",
++ "tracing",
++]
++
+ [[package]]
+ name = "rbmp-rib"
+ version = "0.1.0"
+@@ -1864,6 +1934,7 @@ dependencies = [
+  "rbmp-core",
+  "serde",
+  "serde_json",
++ "serde_yaml",
+  "tokio",
+  "tracing",
+  "uuid",
+@@ -1884,6 +1955,7 @@ dependencies = [
+  "metrics-exporter-prometheus",
+  "rbmp-core",
+  "rbmp-enrichment",
++ "rbmp-kafka",
+  "rbmp-rib",
+  "rbmp-store",
+  "serde",
+@@ -1918,6 +1990,37 @@ dependencies = [
+  "uuid",
+ ]
+ 
++[[package]]
++name = "rdkafka"
++version = "0.36.2"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "1beea247b9a7600a81d4cc33f659ce1a77e1988323d7d2809c7ed1c21f4c316d"
++dependencies = [
++ "futures-channel",
++ "futures-util",
++ "libc",
++ "log",
++ "rdkafka-sys",
++ "serde",
++ "serde_derive",
++ "serde_json",
++ "slab",
++ "tokio",
++]
++
++[[package]]
++name = "rdkafka-sys"
++version = "4.10.0+2.12.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "e234cf318915c1059d4921ef7f75616b5219b10b46e9f3a511a15eb4b56a3f77"
++dependencies = [
++ "cmake",
++ "libc",
++ "libz-sys",
++ "num_enum",
++ "pkg-config",
++]
++
+ [[package]]
+ name = "redox_syscall"
+ version = "0.5.18"
+@@ -2048,6 +2151,25 @@ dependencies = [
+  "syn 1.0.109",
+ ]
+ 
++[[package]]
++name = "rmp"
++version = "0.8.15"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "4ba8be72d372b2c9b35542551678538b562e7cf86c3315773cae48dfbfe7790c"
++dependencies = [
++ "num-traits",
++]
++
++[[package]]
++name = "rmp-serde"
++version = "1.3.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "72f81bee8c8ef9b577d1681a70ebbc962c232461e397b22c208c43c04b67a155"
++dependencies = [
++ "rmp",
++ "serde",
++]
++
+ [[package]]
+ name = "rust_decimal"
+ version = "1.42.1"
+@@ -2277,6 +2399,19 @@ dependencies = [
+  "serde",
+ ]
+ 
++[[package]]
++name = "serde_yaml"
++version = "0.9.34+deprecated"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "6a8b1a1a2ebf674015cc02edccce75287f1a0130d394307b36743c2f5d504b47"
++dependencies = [
++ "indexmap",
++ "itoa",
++ "ryu",
++ "serde",
++ "unsafe-libyaml",
++]
++
+ [[package]]
+ name = "sharded-slab"
+ version = "0.1.7"
+@@ -2830,6 +2965,12 @@ version = "0.2.2"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "b4ac048d71ede7ee76d585517add45da530660ef4390e49b098733c6e897f254"
+ 
++[[package]]
++name = "unsafe-libyaml"
++version = "0.2.11"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "673aac59facbab8a9007c7f6108d11f63b603f7cabff99fabf650fea5c32b861"
++
+ [[package]]
+ name = "untrusted"
+ version = "0.9.0"
+diff --git a/Cargo.toml b/Cargo.toml
+index 102794c..183579c 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -5,6 +5,8 @@ members = [
+     "crates/rbmp-store",
+     "crates/rbmp-server",
+     "crates/rbmp-enrichment",
++    "crates/rbmp-kafka",
++    "crates/rbmp-mrt",
+ ]
+ resolver = "2"
+ 
+@@ -30,6 +32,7 @@ ipnet        = { version = "2", features = ["serde"] }
+ # serialization
+ serde        = { version = "1", features = ["derive"] }
+ serde_json   = "1"
++serde_yaml   = "0.9"
+ toml         = "0.8"
+ 
+ # error handling
+@@ -63,11 +66,19 @@ uuid         = { version = "1", features = ["v4", "serde"] }
+ smallvec     = { version = "1", features = ["serde"] }
+ indexmap     = { version = "2", features = ["serde"] }
+ 
++# Kafka
++rdkafka          = { version = "0.36", features = ["cmake-build"] }
++
++# MessagePack (collector protocol framing)
++rmp-serde        = "1.3"
++
+ # workspace crates
+ rbmp-core        = { path = "crates/rbmp-core" }
+ rbmp-rib         = { path = "crates/rbmp-rib" }
+ rbmp-store       = { path = "crates/rbmp-store" }
+ rbmp-enrichment  = { path = "crates/rbmp-enrichment" }
++rbmp-kafka       = { path = "crates/rbmp-kafka" }
++rbmp-mrt         = { path = "crates/rbmp-mrt" }
+ 
+ [profile.dev]
+ opt-level       = 1
+diff --git a/README.md b/README.md
+index 154fb0a..070a400 100644
+--- a/README.md
++++ b/README.md
+@@ -2,11 +2,15 @@
+ 
+ The best BMP/BGP collector on the planet. Written in Rust.
+ 
++**Sprint**: RV3 complete — 49 tests, 0 failures.
++
+ ---
+ 
+ ## What it is
+ 
+-rustybmp is a dedicated, production-grade **BGP Monitoring Protocol (BMP)** collector and analyser. It receives BMP sessions from routers, parses every BGP message with full RFC correctness, maintains live in-memory RIB tables per peer, persists all route history to DuckDB for powerful analytical queries, and serves a real-time dashboard UI — all from a single statically-linked binary.
++rustybmp is a dedicated, production-grade **BGP Monitoring Protocol (BMP)** collector and analyser. It receives BMP sessions from routers, parses every BGP message with full RFC correctness, maintains live in-memory RIB tables per peer, persists all route history to DuckDB for powerful analytical queries, and serves a real-time HTTP API and SSE event stream — all from a single statically-linked binary.
++
++In distributed deployments, lightweight `rbmp-collector` edge processes forward raw BMP PDUs to a central Core over an authenticated, length-framed MessagePack protocol — enabling multi-site collection without running a full Kafka stack.
+ 
+ **Focus:** BMP + BGP only. No gNMI, no SNMP, no syslog. Maximum depth, zero scope creep.
+ 
+@@ -15,44 +19,64 @@ rustybmp is a dedicated, production-grade **BGP Monitoring Protocol (BMP)** coll
+ ## Architecture
+ 
+ ```
+-Routers (RFC 7854 BMP) ──TCP──▶ BMP Receiver (rbmp-server)
+-                                       │
+-                                       ▼
+-                                rbmp-core parser
+-                                  ├── BMP message types (RFC 7854)
+-                                  ├── BGP UPDATE (RFC 4271)
+-                                  ├── Path attributes (all types)
+-                                  ├── MP_REACH/UNREACH (RFC 4760)
+-                                  ├── Communities (RFC 1997, 4360, 8092)
+-                                  └── BGP OPEN + capabilities
+-                                       │
+-                                       ▼
+-                                rbmp-rib engine
+-                                  ├── Per-peer RIB tables
+-                                  ├── Adj-RIB-In/Out pre+post policy
+-                                  ├── Loc-RIB (RFC 9069)
+-                                  └── BMP session tracking
+-                                       │
+-                              ┌────────┴────────┐
+-                              ▼                  ▼
+-                        rbmp-store          RibEvent bus
+-                        (DuckDB)           (broadcast)
+-                     route history         │
+-                     analytics             ▼
+-                     queries          HTTP API (Axum)
+-                                       ├── REST /api/*
+-                                       ├── SSE  /api/events
+-                                       └── UI   /  (Svelte)
++Routers (RFC 7854 BMP)                     rbmp-collector (edge, optional)
++        │                                          │ CollectorEnvelope
++        │ TCP :5000                                │ TCP :5001
++        ▼                                          ▼
++ ┌─────────────────────────────────────────────────────────────────┐
++ │                      rbmp-server (Core)                         │
++ │                                                                 │
++ │  BMP Receiver  ◄──────────────────────────────────────────────  │
++ │       │                                                         │
++ │       ▼                                                         │
++ │  rbmp-core parser                                               │
++ │    ├── BMP RFC 7854 + RFC 8671 + RFC 9069                       │
++ │    ├── BGP UPDATE + all path attributes                         │
++ │    ├── EVPN types 1-11 (RFC 7432 + RFC 8365 + RFC 9251)        │
++ │    ├── BGP-LS NLRI + full link/node/prefix attrs (RFC 7752)     │
++ │    ├── SR Policy NLRI SAFI 73 (RFC 9256)                        │
++ │    ├── Route Target Constraint SAFI 132 (RFC 4684)              │
++ │    └── Flowspec (RFC 5575/8955)                                 │
++ │       │                                                         │
++ │       ▼                                                         │
++ │  rbmp-rib engine                                                │
++ │    ├── Per-peer RIB + LLGR state machine (RFC 9494)             │
++ │    ├── YAML filter DSL (prefix, AS, community, length)          │
++ │    └── BMP session lifecycle                                    │
++ │       │                                                         │
++ │       ├──────────────┬────────────────┬────────────────┐        │
++ │       ▼              ▼                ▼                ▼        │
++ │  rbmp-store    rbmp-kafka       rbmp-mrt          RibEvent bus  │
++ │  (DuckDB)      (Kafka output)   (MRT R/W)         (broadcast)  │
++ │  route history  typed topics    RFC 6396           │            │
++ │  analytics      lz4 compressed  BGP4MP+TABLE_DUMP  ▼            │
++ │  queries        fire-and-forget import/export   HTTP API (Axum) │
++ │                                                   ├── REST /api │
++ │                                                   ├── SSE /api/events
++ │                                                   └── /metrics  │
++ │                                                                 │
++ │  rbmp-enrichment                                                │
++ │    ├── RTR client → VRP cache (RFC 6810)                        │
++ │    └── Per-route RPKI validation                                │
++ └─────────────────────────────────────────────────────────────────┘
++
++bmppy/ (Python SDK)
++  ├── RtrVrpCache + DetectorPipeline
++  ├── IrrClient / RdapClient / BgpToolsClient
++  └── OriginChange / RouteLeak / MED / Hijack detectors
+ ```
+ 
+ ### Crates
+ 
+ | Crate | Purpose |
+ |---|---|
+-| `rbmp-core` | Pure RFC parser: BMP (RFC 7854) + BGP (RFC 4271 + extensions). No I/O, no_std-friendly |
+-| `rbmp-rib`  | In-memory RIB engine: per-peer tables, session lifecycle, event emission |
+-| `rbmp-store` | DuckDB-backed persistence: route history, analytics queries |
+-| `rbmp-server` | Main binary: BMP TCP receiver, HTTP REST+SSE API, embedded UI |
++| `rbmp-core` | Pure RFC parser: BMP + BGP (no I/O). Also hosts `collector_protocol` framing |
++| `rbmp-rib` | In-memory RIB engine: per-peer tables, LLGR, filter DSL, event emission |
++| `rbmp-store` | DuckDB-backed persistence: route history, analytics queries, `collector_id` tagging |
++| `rbmp-server` | Main binary (`rustybmp`) + edge binary (`rbmp-collector`) |
++| `rbmp-enrichment` | RTR client, VRP cache, per-route RPKI enrichment |
++| `rbmp-kafka` | Kafka output sink: `rdkafka` FutureProducer, typed topics, lz4 compression |
++| `rbmp-mrt` | MRT import/export: RFC 6396 BGP4MP + TABLE_DUMP_V2 reader/writer |
+ 
+ ---
+ 
+@@ -67,13 +91,15 @@ Routers (RFC 7854 BMP) ──TCP──▶ BMP Receiver (rbmp-server)
+ - [x] Adj-RIB-Out (RFC 8671)
+ - [x] Loc-RIB (RFC 9069)
+ - [x] Multi-session: concurrent BMP speakers
++- [x] DNS PTR enrichment on speaker connect (RFC 1035)
++- [x] BMP proxy / transparent intercept mode
+ 
+ ### BGP Protocol
+ - [x] BGP OPEN with full capability negotiation
+ - [x] BGP UPDATE: withdrawals + announcements
+ - [x] All path attributes: ORIGIN, AS_PATH, NEXT_HOP, MED, LOCAL_PREF, ATOMIC_AGGREGATE, AGGREGATOR
+-- [x] Standard communities (RFC 1997) + well-known (NO_EXPORT, BLACKHOLE, etc.)
+-- [x] Extended communities (RFC 4360)
++- [x] Standard communities (RFC 1997) + well-known
++- [x] Extended communities (RFC 4360) + Route Target
+ - [x] Large communities (RFC 8092)
+ - [x] MP_REACH_NLRI / MP_UNREACH_NLRI (RFC 4760)
+ - [x] IPv4 + IPv6 unicast NLRI
+@@ -84,13 +110,28 @@ Routers (RFC 7854 BMP) ──TCP──▶ BMP Receiver (rbmp-server)
+ - [x] BGP Prefix-SID (RFC 8669, type 40) — Label Index, Originator SRGB, SRv6 L3 Service
+ - [x] Only-to-Customer / BGP Role (RFC 9234, type 35 + cap 9)
+ - [x] Tunnel Encapsulation (RFC 9012, type 23)
+-- [x] Graceful Restart capability (RFC 4724)
+-- [x] End-of-RIB marker detection (RFC 4724)
+-- [x] AS path loop / prepending detection
+-- [x] EVPN (RFC 7432) — all 5 route types (types 1-5)
++- [x] Graceful Restart capability (RFC 4724) + End-of-RIB
++- [x] Long-Lived Graceful Restart state machine (RFC 9494)
++- [x] **EVPN (RFC 7432 + RFC 8365 + RFC 9251/9572) — all 11 route types (types 1-11)**
+ - [x] BGP Flowspec (RFC 5575/8955) — component parser, numeric + bitmask ops
+-- [ ] BGP-LS (RFC 7752 via BMP) — planned
+-- [ ] RPKI ROV via RTR (RFC 6810) — planned
++- [x] **BGP-LS (RFC 7752) — NLRI + full link/node/prefix attribute TLVs**
++- [x] **SR Policy NLRI SAFI 73 (RFC 9256) — segment types A-K**
++- [x] **Route Target Constraint SAFI 132 (RFC 4684)**
++- [x] RPKI ROV via RTR (RFC 6810) — live VRP cache
++
++### Filter DSL (YAML)
++- [x] Match on prefix (exact / more-specific / length range)
++- [x] Match on origin AS, peer AS, community value
++- [x] Actions: `accept`, `reject`, `tag`
++- [x] Applied at RIB ingestion (pre-storage)
++
++### Output & Integration
++- [x] **Kafka output** — typed topics (router/peer/unicast_prefix/evpn/ls_node/bmp_stat/bmp_raw), lz4 compression
++- [x] **MRT export** — BGP4MP_MESSAGE_AS4, BGP4MP_STATE_CHANGE_AS4, TABLE_DUMP_V2
++- [x] **MRT import** — parse MRT records back to BMP events (RFC 6396)
++- [x] **Multi-site distributed collection** — `rbmp-collector` edge binary → Core TCP (MessagePack framing, exponential-backoff reconnect, ring-buffer)
++- [x] Prometheus metrics (`/metrics`)
++- [x] SSE real-time event stream (`/api/events`)
+ 
+ ### Analytics (DuckDB)
+ - [x] Current RIB snapshot per peer
+@@ -98,44 +139,35 @@ Routers (RFC 7854 BMP) ──TCP──▶ BMP Receiver (rbmp-server)
+ - [x] Route change window queries
+ - [x] Top churning prefixes
+ - [x] Origin AS distribution
+-- [ ] AS path length distribution
+-- [ ] Community usage analytics
+-- [ ] Peer session flap analysis
+-- [ ] Route visibility across peers
+-- [ ] BGP convergence timing
+-- [ ] Route leak / hijack detection
++- [x] `collector_id` tagging on all events (multi-site)
+ 
+ ### API
+ - [x] REST: `/api/speakers`, `/api/peers`, `/api/routes`
+ - [x] SSE: `/api/events` — real-time stream
+-- [x] Health: `/health`, `/metrics`
+-- [ ] Swagger / OpenAPI spec
+-- [ ] Authentication
+-
+-### UI (Svelte 5)
+-- [ ] Dashboard: speakers, peers, route counts, event rate
+-- [ ] Route table with live filter + sort
+-- [ ] Peer session view with timeline
+-- [ ] AS path explorer
+-- [ ] Community browser
+-- [ ] Prefix history chart
+-- [ ] BGP topology map
++- [x] Health: `/health`, `/metrics` (Prometheus)
+ 
+ ---
+ 
+ ## Quick Start
+ 
+ ```bash
+-# Build
++# Build all binaries
+ cargo build --release
+ 
+-# Run with defaults (BMP on :5000, HTTP on :7878)
++# Run Core (BMP on :5000, Collector listener on :5001, HTTP on :7878)
+ ./target/release/rustybmp
+ 
+ # Run with config
+ cp config/rustybmp.toml.example rustybmp.toml
+ ./target/release/rustybmp rustybmp.toml
+ 
++# Run edge collector (forwards to Core at 192.168.1.10:5001)
++./target/release/rbmp-collector \
++    --listen 0.0.0.0:5000 \
++    --core   192.168.1.10:5001 \
++    --id     site-fra01-col1 \
++    --site   fra01
++
+ # Point your router at the BMP receiver
+ # IOS-XR:
+ #   bmp server 1 host <rustybmp-ip> port 5000
+@@ -147,50 +179,62 @@ cp config/rustybmp.toml.example rustybmp.toml
+ #   set routing-options bmp station rustybmp address <ip> port 5000
+ ```
+ 
+-Once connected, check the dashboard at `http://localhost:7878`.
++Once connected, events are available at `http://localhost:7878/api/events`.
+ 
+ ---
+ 
+-## bmppy (Python analytics)
++## bmppy (Python SDK + anomaly detection)
+ 
+-For advanced analytics, the `bmppy/` package connects directly to the DuckDB file:
++```bash
++cd bmppy && pip install -e ".[dev]"
++```
+ 
+ ```python
+-from rbmppy.analytics import RouteAnalytics
+-
+-r = RouteAnalytics("runtime/routes.duckdb")
+-print(r.churn_analysis(top_n=20))
+-print(r.community_usage())
+-r.close()
++from rbmppy import RustybmpClient, DetectorPipeline, RtrVrpCache, poll_rtr_cache
++from rbmppy import stream_route_events
++
++# RPKI-aware anomaly detection pipeline
++vrp = RtrVrpCache()
++await vrp.load_from_url("http://routinator:9556/api/v1/vrps")
++
++pipeline = DetectorPipeline(vrp_cache=vrp)
++async for event in stream_route_events(client):
++    for alert in pipeline.process(event):
++        print(alert)   # [CRITICAL] hijack: 1.2.3.0/24 — RPKI: INVALID
++
++# IRR / PeeringDB / BGP.Tools lookups
++from rbmppy import resolve_origin
++info = await resolve_origin("203.0.113.0/24", 64496)
++print(info.asn_info.name, info.visible_peers)
+ ```
+ 
+ ---
+ 
+ ## Roadmap
+ 
+-### Phase 1 — Core (current)
+-- [x] BMP receiver + full parser
+-- [x] RIB engine
+-- [x] DuckDB persistence
+-- [x] REST + SSE API
+-
+-### Phase 2 — UI
+-- [ ] Svelte 5 dashboard embedded in binary
+-- [ ] Real-time route table
+-- [ ] Peer session timeline
+-
+-### Phase 3 — Analytics
+-- [ ] RPKI validation (RTR client)
+-- [ ] Route leak detection
+-- [ ] BGP hijack alerts
+-- [x] EVPN support (RFC 7432)
+-- [x] Flowspec support (RFC 5575/8955)
+-
+-### Phase 4 — Scale
+-- [ ] Multi-instance clustering
+-- [ ] Prometheus metrics
+-- [ ] Alert rules engine
+-- [ ] Kafka / NATS export
++### ✅ RV1 — Core
++- BMP receiver, full parser, RIB engine, DuckDB persistence, REST + SSE API
++
++### ✅ RV2 — Protocol depth
++- Add-Path NLRI, EVPN withdraw, ExtComm, BGP-LS NLRI, RPKI RTR scaffold
++
++### ✅ RV3 — Feature parity + integration (current)
++- SR Policy SAFI 73 (RFC 9256), EVPN types 6-11, BGP-LS full TLVs
++- YAML filter DSL + LLGR state machine
++- DNS PTR enrichment + BMP proxy
++- Kafka output crate (rbmp-kafka)
++- MRT import/export crate (rbmp-mrt)
++- Python SDK: rpki.py + internet.py + detectors.py
++- Distributed collection: rbmp-collector + Core listener + schema collector_id
++
++### 🔲 RV4 — Scale + UI
++- Svelte 5 dashboard (live RIB table, BGP-LS topology, RPKI status)
++- Active BGP session connector (receive tables without BMP)
++- BGPsec path validation
++- HA leader election (active/passive)
++- NATS output (edge-friendly Kafka alternative)
++- L2VPN VPLS full decode
++- BGP-LS SRv6 SID NLRI (SAFI 72)
+ 
+ ---
+ 
+@@ -201,6 +245,7 @@ r.close()
+ | RFC 7854 | BGP Monitoring Protocol (BMP) |
+ | RFC 8671 | Support for Adj-RIB-Out in BMP |
+ | RFC 9069 | Support for Local RIB in BMP |
++| RFC 9972 | Advanced BMP Statistics — types 18-38 |
+ | RFC 4271 | A Border Gateway Protocol 4 (BGP-4) |
+ | RFC 4760 | Multiprotocol Extensions for BGP-4 |
+ | RFC 1997 | BGP Communities Attribute |
+@@ -209,24 +254,32 @@ r.close()
+ | RFC 6793 | BGP Support for Four-Octet ASN |
+ | RFC 5492 | Capabilities Advertisement with BGP-4 |
+ | RFC 4724 | Graceful Restart Mechanism for BGP |
++| RFC 9494 | Long-Lived Graceful Restart (LLGR) |
+ | RFC 7911 | Advertisement of Multiple Paths in BGP |
+ | RFC 3107 | Carrying Label Information in BGP-4 |
+ | RFC 4364 | BGP/MPLS IP Virtual Private Networks |
+-| RFC 9972 | Advanced BMP Statistics (May 2026) — types 18-38 |
+-| RFC 7432 | BGP MPLS-Based Ethernet VPN (EVPN) |
++| RFC 7432 | BGP MPLS-Based Ethernet VPN (EVPN) — types 1-11 |
++| RFC 8365 | EVPN Multicast (types 6-8) |
++| RFC 9251 | EVPN I-PMSI / S-PMSI (types 9-10) |
++| RFC 9572 | EVPN Leaf A-D route (type 11) |
+ | RFC 5575 | Dissemination of Flow Specification Rules (Flowspec) |
+ | RFC 8955 | Dissemination of Flow Specification Rules for IPv6 |
+ | RFC 8669 | BGP Prefix Segment Identifiers (Prefix-SID) |
+ | RFC 9234 | Route Leak Prevention and Detection (OTC + BGP Role) |
+ | RFC 9012 | BGP Tunnel Encapsulation Attribute |
++| RFC 7752 | BGP-LS — NLRI + link/node/prefix attribute TLVs |
++| RFC 9256 | Segment Routing Policy (SR Policy SAFI 73) |
++| RFC 4684 | Route Target Constraint SAFI 132 |
++| RFC 6810 | RPKI/RTR Protocol — VRP cache + ROV |
++| RFC 6396 | MRT Routing Information Export Format |
+ 
+ ---
+ 
+ ## Development
+ 
+ ```bash
+-# Run tests
+-cargo test
++# Run tests (49 total)
++cargo test --workspace
+ 
+ # Check all crates
+ cargo check --workspace
+@@ -234,8 +287,8 @@ cargo check --workspace
+ # Format + lint
+ cargo fmt --all && cargo clippy --workspace
+ 
+-# bmppy analytics
+-cd bmppy && python -m pytest
++# bmppy SDK
++cd bmppy && pip install -e ".[dev]" && python -m pytest
+ ```
+ 
+ ## License
+diff --git a/RUSTYBMP_PROJECT_CONTEXT.md b/RUSTYBMP_PROJECT_CONTEXT.md
+index 454c858..18eb8c0 100644
+--- a/RUSTYBMP_PROJECT_CONTEXT.md
++++ b/RUSTYBMP_PROJECT_CONTEXT.md
+@@ -1,79 +1,79 @@
+ # RUSTYBMP — Project Context Reference
+-## Updated: 2026-06-19 | RV2 Sprint | Retain in Claude Project
++## Updated: 2026-06-19 | RV3 Sprint | Retain in Claude Project
+ 
+ ---
+ 
+ ## What this project is
+ 
+-RustyBMP is a Rust-first BGP Monitoring Protocol (BMP) collector. Exclusive focus on BMP/BGP. Sister project "bonsai" (broader telemetry) was analysed once in session 1 — no need to re-upload.
++RustyBMP: Rust-first BGP Monitoring Protocol (BMP) collector. BMP/BGP exclusive. Bonsai analysis was done once in session 1 — no need to re-upload.
+ 
+-**Dev cycle**: Mac (VSCode/rust-analyzer) → GitHub → Ubuntu 24 (run + test) + XRD containers via ContainerLab.  
+-**Next session**: Upload `rv2_all_changes.patch` (output of `scripts/dev/make_diff.sh`) to generate RV3 backlog.
++**Dev cycle**: Mac → GitHub → Ubuntu 24 + XRD ContainerLab.
++**Next session**: Upload `rv3_all_changes.patch` (output of `scripts/dev/make_diff.sh`).
+ 
+ ---
+ 
+-## Codebase State (post-RV1, going into RV2)
++## Codebase State (post-RV2, going into RV3)
+ 
+ ### Workspace crates
+-
+ ```
+-crates/rbmp-core/    ← BMP/BGP pure parser. RFC 7854/8671/9069/9972/7432/5575/8669/9234/9012
+-crates/rbmp-rib/     ← In-memory RIB + session state. path_id struct ready (always None — RV2-1)
+-crates/rbmp-store/   ← DuckDB: route_events/peer_events/speaker_events/stats_events/evpn_events
+-crates/rbmp-server/  ← TCP receiver + archive + governor + HTTP API. Event_tx wiring fixed.
+-[RV2 NEW] crates/rbmp-enrichment/  ← RTR/RPKI, PeeringDB, Speaker registry
++crates/rbmp-core/       ← Parser: BMP RFC7854/8671/9069/9972 + BGP EVPN(1-5)/Flowspec/BGP-LS(NLRI)/SRv6/Prefix-SID/OTC/TunnelEncap/Add-Path
++crates/rbmp-rib/        ← RIB + session state. Add-Path fully wired (path_id flows through).
++crates/rbmp-store/      ← DuckDB: route_events/peer_events/speaker_events/stats_events/evpn_events/bgpls_nodes/bgpls_links
++crates/rbmp-server/     ← TCP recv + archive + governor + HTTP API + Prometheus (real) + synthetic Termination + batched writes
++crates/rbmp-enrichment/ ← VrpCache + EnrichmentEngine + RtrClient (RTR RFC 8210)
++[RV3 NEW] crates/rbmp-kafka/   ← Kafka output producer (rdkafka)
++[RV3 NEW] crates/rbmp-mrt/     ← MRT import/export (RFC 6396)
+ ```
+ 
+ ### Python (bmppy/rbmppy/)
+ - client.py, stream.py, models.py — complete
+-- analytics.py — SQL bug fixed only; Z-score/hijack detection NOT YET (→ RV2-5 full rewrite)
+-- peering.py — live HTTP, no cache (→ RV2-3/4 replaces with rpki.py + internet.py)
++- analytics.py — ZScoreMonitor (eq.2-4), HijackDetector, RouteLeakDetector, FlapScorer, RouteAnalytics
++- peering.py — live PeeringDB + Cloudflare RPKI (no cache — replaced by RV3-3)
++- rpki.py, internet.py, detectors.py — NOT YET (RV3-3)
+ 
+ ---
+ 
+-## RV1 Epic Status (all complete)
+-
+-All 8 RV1 epics done. Key bugs fixed: hold_time passing (D3), SSE dead channel (D7), StatEntry lifetime (D1).
++## RV2 Status (all complete)
+ 
+-Known deferred from RV1:
+-- Add-Path path_id in NLRI (struct ready, parsing deferred → RV2-1)
+-- LLGR state machine (capability parsed only → RV2-9)
+-- BGP-LS full decode (stub AFI → RV2-2)
+-- analytics.py Z-score model (→ RV2-5)
++All P0/P1 epics done. Deferred: rpki.py/internet.py/detectors.py Python files, LLGR state machine, distributed collector/core.
+ 
+ ---
+ 
+-## RV2 Sprint Targets (priority order)
+-
+-P0 — Critical:
+-- RV2-1: Add-Path NLRI path_id parsing + EVPN withdraw + ExtComm full decode
+-- RV2-2: BGP-LS NLRI (RFC 7752) — Node/Link/Prefix
+-- RV2-3: RPKI — RTR (RFC 8210) client + VrpCache + per-route annotation + rbmppy/rpki.py
+-- RV2-5: Analytics Engine — Z-score model (paper eq.2-4) + hijack/leak/flap + analytics.py rewrite
+-- RV2-6: Receiver supervisor — synthetic Termination on TCP drop (stale routes fix)
+-
+-P1 — Important:
+-- RV2-4: PeeringDB + RIPE STAT caching client (rbmppy/internet.py)
+-- RV2-7: Write coordinator — batched DuckDB inserts (target: 1500 msg/sec)
+-- RV2-8: Speaker registry — IP→hostname/vendor/site in config + API responses
+-
+-P2 — Architecture:
+-- RV2-9: LLGR state machine
+-- RV2-10: Prometheus metrics (per-speaker gauges, RPKI counters, BMP stat passthrough)
+-- RV2-11: Distributed collector/core scaffold (rbmp-collector + rbmp-core-service binaries)
++## RV3 Sprint Targets
++
++| Epic | Title | Priority |
++|------|-------|----------|
++| RV3-1 | SR Policy NLRI (SAFI 73) + EVPN types 6-11 + RTC/MVPN | P0 |
++| RV3-2 | BGP-LS link/node/prefix attribute TLVs + Flex Algo | P0 |
++| RV3-3 | Python layer: rpki.py + internet.py + detectors.py | P0 |
++| RV3-4 | DNS PTR enrichment for speaker hostname | P1 |
++| RV3-5 | Kafka output producer (rdkafka crate) | P0 |
++| RV3-6 | MRT import (RIPE RIS files) + export | P1 |
++| RV3-7 | BMP proxy/intercept mode | P1 |
++| RV3-8 | YAML filter engine at ingest (bogons, prefix-len, community) | P1 |
++| RV3-9 | LLGR state machine (deferred from RV2) | P2 |
++| RV3-10 | Distributed collector/core (deferred from RV2) | P2 |
+ 
+ ---
+ 
+-## Research reference (IMACSI 2025, Hiremath)
++## Competitor Analysis Summary
+ 
+-Z-score model: μPi, σPi over sliding window; Zi = (f-μ)/σ; alert if |Zi|>3.
+-Origin AS change without prior withdraw = hijack signal.
+-Performance targets: 97.2% accuracy, 2.1% FPR, <700ms latency, 1500 msg/sec.
++| Project | Language | Key gap vs rustybmp (what they have, we don't) |
++|---------|----------|-----------------------------------------------|
++| OpenBMP (SNAS) | C++ | Kafka output, MRT export, BMP proxy, BGP-LS link attrs, DNS PTR |
++| Rotonda (NLnet) | Rust | Roto filter language, active BGP session, MRT import, MQTT |
++| bbmp2kafka (Cloudflare) | Go | Kafka + Protobuf serialization |
++| goBMP (sbezverk) | Go | SR Policy all 11 seg types, EVPN 6-11, Flex Algo, BGP-LS full TLVs, NATS |
+ 
+----
++## Where rustybmp leads everyone
++- RFC 9972 stats types 18-38 (May 2026) — no one else has these
++- Z-score anomaly detection + hijack/leak detection built-in
++- DuckDB embedded analytics store (history + ad-hoc SQL)
++- Python SDK with real analytics
++- SSE real-time event stream
+ 
+-## Bonsai patterns still pending
++---
+ 
+-Receiver supervisor, write coordinator, speaker registry → RV2.
+-Event bus, topology graph, HA coordinator → RV3.
+-Bonsai repo NOT needed again.
++## New crates added in RV3
++- `crates/rbmp-kafka/` — Kafka output (rdkafka, lz4 compression)
++- `crates/rbmp-mrt/` — MRT format (RFC 6396) import/export
+diff --git a/bmppy/rbmppy/__init__.py b/bmppy/rbmppy/__init__.py
+index b9c0674..a02f757 100644
+--- a/bmppy/rbmppy/__init__.py
++++ b/bmppy/rbmppy/__init__.py
+@@ -10,6 +10,16 @@ from .models import (
+ )
+ from .analytics import RouteAnalytics
+ from .peering import lookup_asn, validate_prefix_rpki, NetworkInfo, RpkiResult
++from .rpki import RtrVrpCache, ValidationResult, poll_rtr_cache, validate_via_api
++from .internet import (
++    IrrClient, RdapClient, BgpToolsClient,
++    AsnInfo, RouteObject, OriginInfo, resolve_origin,
++)
++from .detectors import (
++    Alert, DetectorPipeline,
++    OriginChangeDetector, RouteLeakDetector,
++    MEDOscillationDetector, BGPHijackDetector,
++)
+ 
+ __all__ = [
+     "RustybmpClient",
+@@ -29,4 +39,24 @@ __all__ = [
+     "validate_prefix_rpki",
+     "NetworkInfo",
+     "RpkiResult",
++    # rpki
++    "RtrVrpCache",
++    "ValidationResult",
++    "poll_rtr_cache",
++    "validate_via_api",
++    # internet
++    "IrrClient",
++    "RdapClient",
++    "BgpToolsClient",
++    "AsnInfo",
++    "RouteObject",
++    "OriginInfo",
++    "resolve_origin",
++    # detectors
++    "Alert",
++    "DetectorPipeline",
++    "OriginChangeDetector",
++    "RouteLeakDetector",
++    "MEDOscillationDetector",
++    "BGPHijackDetector",
+ ]
+diff --git a/crates/rbmp-core/Cargo.toml b/crates/rbmp-core/Cargo.toml
+index 98e8159..b574cfc 100644
+--- a/crates/rbmp-core/Cargo.toml
++++ b/crates/rbmp-core/Cargo.toml
+@@ -19,6 +19,8 @@ smallvec    = { workspace = true }
+ indexmap    = { workspace = true }
+ tracing     = { workspace = true }
+ uuid        = { workspace = true }
++rmp-serde   = { workspace = true }
++tokio       = { workspace = true }
+ 
+ [dev-dependencies]
+ hex-literal = "0.4"
+diff --git a/crates/rbmp-core/src/bgp/attributes.rs b/crates/rbmp-core/src/bgp/attributes.rs
+index 3652345..1483798 100644
+--- a/crates/rbmp-core/src/bgp/attributes.rs
++++ b/crates/rbmp-core/src/bgp/attributes.rs
+@@ -6,7 +6,8 @@ use super::nlri::{decode_nlri, decode_labeled_nlri, decode_vpn_nlri, decode_next
+ use super::evpn::decode_evpn_nlri;
+ use super::flowspec::{decode_flowspec_nlri, FlowspecNlri};
+ use super::srv6::parse_prefix_sid;
+-use super::bgpls::{decode_bgpls_reach, decode_bgpls_unreach};
++use super::bgpls::{decode_bgpls_reach, decode_bgpls_unreach, parse_bgpls_attribute};
++use super::srpolicy::{decode_srpolicy_nlri, decode_rtc_nlri, SrPolicyNlri, RtcNlri};
+ 
+ // ─── Attribute flag bits ──────────────────────────────────────────────────────
+ const FLAG_OPTIONAL:   u8 = 0x80;
+@@ -100,19 +101,26 @@ pub fn parse_path_attributes(mut buf: impl Buf) -> Result<PathAttributes> {
+             }
+             // Type 14: MP_REACH_NLRI (RFC 4760)
+             14 if attr_len >= 4 => {
+-                let (mp, evpn_reach, flowspec_reach, bgpls_reach) = parse_mp_reach(attr_data.as_ref())?;
+-                attrs.mp_reach       = Some(mp);
+-                attrs.evpn_reach     = evpn_reach;
+-                attrs.flowspec_reach = flowspec_reach;
+-                attrs.bgpls_reach    = bgpls_reach;
++                let (mp, evpn_reach, flowspec_reach, bgpls_reach, sr_nlris, rtc_nlris)
++                    = parse_mp_reach(attr_data.as_ref())?;
++                attrs.mp_reach          = Some(mp);
++                attrs.evpn_reach        = evpn_reach;
++                attrs.flowspec_reach    = flowspec_reach;
++                attrs.bgpls_reach       = bgpls_reach;
++                attrs.sr_policy_nlris   = sr_nlris;
++                attrs.rtc_nlris         = rtc_nlris;
+             }
+             // Type 15: MP_UNREACH_NLRI (RFC 4760)
+             15 if attr_len >= 3 => {
+-                let (mp, evpn_unreach, flowspec_unreach, bgpls_unreach) = parse_mp_unreach(attr_data.as_ref())?;
+-                attrs.mp_unreach       = Some(mp);
+-                attrs.evpn_unreach     = evpn_unreach;
+-                attrs.flowspec_unreach = flowspec_unreach;
+-                attrs.bgpls_unreach    = bgpls_unreach;
++                let (mp, evpn_unreach, flowspec_unreach, bgpls_unreach, sr_wd, _rtc_wd)
++                    = parse_mp_unreach(attr_data.as_ref())?;
++                attrs.mp_unreach        = Some(mp);
++                attrs.evpn_unreach      = evpn_unreach;
++                attrs.flowspec_unreach  = flowspec_unreach;
++                attrs.bgpls_unreach     = bgpls_unreach;
++                if let Some(nlris) = sr_wd {
++                    attrs.sr_policy_nlris = nlris;
++                }
+             }
+             // Type 16: EXTENDED COMMUNITIES (RFC 4360)
+             16 => {
+@@ -152,6 +160,10 @@ pub fn parse_path_attributes(mut buf: impl Buf) -> Result<PathAttributes> {
+             35 if attr_len == 4 => {
+                 attrs.only_to_customer = Some(u32::from_be_bytes(attr_buf[..4].try_into().unwrap()));
+             }
++            // Type 29: BGP-LS attribute (RFC 7752 §3.3)
++            29 => {
++                attrs.bgpls_attr = Some(parse_bgpls_attribute(attr_data.as_ref()));
++            }
+             // Type 40: BGP_PREFIX_SID (RFC 8669)
+             40 => {
+                 attrs.prefix_sid = parse_prefix_sid(attr_data.as_ref()).ok();
+@@ -204,7 +216,7 @@ pub fn parse_as_path(mut buf: &[u8], four_byte: bool) -> Result<AsPath> {
+     Ok(AsPath(segments))
+ }
+ 
+-fn parse_mp_reach(buf: &[u8]) -> Result<(MpReachNlri, Option<EvpnReachNlri>, Option<Vec<FlowspecNlri>>, Option<BgpLsReachNlri>)> {
++fn parse_mp_reach(buf: &[u8]) -> Result<(MpReachNlri, Option<EvpnReachNlri>, Option<Vec<FlowspecNlri>>, Option<BgpLsReachNlri>, Vec<SrPolicyNlri>, Vec<RtcNlri>)> {
+     if buf.len() < 4 {
+         return Err(Error::UnexpectedEof { needed: 4, have: buf.len() });
+     }
+@@ -235,6 +247,17 @@ fn parse_mp_reach(buf: &[u8]) -> Result<(MpReachNlri, Option<EvpnReachNlri>, Opt
+             let ls = decode_bgpls_reach(next_hop, &remaining).unwrap_or_else(|_| BgpLsReachNlri { next_hop, nlris: vec![] });
+             (Vec::new(), None, None, Some(ls))
+         }
++        Safi::SrPolicy => {
++            let afi_is_ipv6 = matches!(afi_safi.afi, Afi::Ipv6);
++            let nlris = decode_srpolicy_nlri(&remaining, afi_is_ipv6).unwrap_or_default();
++            return Ok((MpReachNlri { afi_safi, next_hops, prefixes: Vec::new() }, None, None, None,
++                       nlris, Vec::new()));
++        }
++        Safi::RouteTargetConstraint => {
++            let rtcs = decode_rtc_nlri(&remaining).unwrap_or_default();
++            return Ok((MpReachNlri { afi_safi, next_hops, prefixes: Vec::new() }, None, None, None,
++                       Vec::new(), rtcs));
++        }
+         Safi::Unicast | Safi::Multicast => {
+             let p = decode_nlri(&mut std::io::Cursor::new(&remaining), afi_safi.afi)?;
+             (p, None, None, None)
+@@ -250,10 +273,11 @@ fn parse_mp_reach(buf: &[u8]) -> Result<(MpReachNlri, Option<EvpnReachNlri>, Opt
+         _ => (Vec::new(), None, None, None),
+     };
+ 
+-    Ok((MpReachNlri { afi_safi, next_hops, prefixes }, evpn_reach, flowspec_reach, bgpls_reach))
++    Ok((MpReachNlri { afi_safi, next_hops, prefixes }, evpn_reach, flowspec_reach, bgpls_reach,
++        Vec::new(), Vec::new()))
+ }
+ 
+-fn parse_mp_unreach(buf: &[u8]) -> Result<(MpUnreachNlri, Option<EvpnUnreachNlri>, Option<Vec<FlowspecNlri>>, Option<BgpLsUnreachNlri>)> {
++fn parse_mp_unreach(buf: &[u8]) -> Result<(MpUnreachNlri, Option<EvpnUnreachNlri>, Option<Vec<FlowspecNlri>>, Option<BgpLsUnreachNlri>, Option<Vec<SrPolicyNlri>>, Vec<RtcNlri>)> {
+     if buf.len() < 3 {
+         return Err(Error::UnexpectedEof { needed: 3, have: buf.len() });
+     }
+@@ -262,7 +286,7 @@ fn parse_mp_unreach(buf: &[u8]) -> Result<(MpUnreachNlri, Option<EvpnUnreachNlri
+     let afi_safi = AfiSafi::new(afi, safi);
+     let remaining = &buf[3..];
+ 
+-    let (prefixes, evpn_unreach, flowspec_unreach, bgpls_unreach) = match afi_safi.safi {
++    let (prefixes, evpn_unreach, flowspec_unreach, bgpls_unreach): (Vec<_>, _, _, _) = match afi_safi.safi {
+         Safi::Evpn => {
+             let routes = decode_evpn_nlri(remaining).unwrap_or_default();
+             (Vec::new(), Some(EvpnUnreachNlri { routes }), None, None)
+@@ -276,6 +300,17 @@ fn parse_mp_unreach(buf: &[u8]) -> Result<(MpUnreachNlri, Option<EvpnUnreachNlri
+             let ls = decode_bgpls_unreach(remaining).unwrap_or_else(|_| BgpLsUnreachNlri { nlris: vec![] });
+             (Vec::new(), None, None, Some(ls))
+         }
++        Safi::SrPolicy => {
++            let afi_is_ipv6 = matches!(afi_safi.afi, Afi::Ipv6);
++            let nlris = decode_srpolicy_nlri(remaining, afi_is_ipv6).unwrap_or_default();
++            return Ok((MpUnreachNlri { afi_safi, prefixes: Vec::new() }, None, None, None,
++                       Some(nlris), Vec::new()));
++        }
++        Safi::RouteTargetConstraint => {
++            let rtcs = decode_rtc_nlri(remaining).unwrap_or_default();
++            return Ok((MpUnreachNlri { afi_safi, prefixes: Vec::new() }, None, None, None,
++                       None, rtcs));
++        }
+         Safi::Unicast | Safi::Multicast => {
+             let p = decode_nlri(&mut std::io::Cursor::new(remaining), afi_safi.afi)?;
+             (p, None, None, None)
+@@ -291,7 +326,8 @@ fn parse_mp_unreach(buf: &[u8]) -> Result<(MpUnreachNlri, Option<EvpnUnreachNlri
+         _ => (Vec::new(), None, None, None),
+     };
+ 
+-    Ok((MpUnreachNlri { afi_safi, prefixes }, evpn_unreach, flowspec_unreach, bgpls_unreach))
++    Ok((MpUnreachNlri { afi_safi, prefixes }, evpn_unreach, flowspec_unreach, bgpls_unreach,
++        None, Vec::new()))
+ }
+ 
+ fn parse_tunnel_encap(buf: &[u8]) -> Vec<TunnelEncapEntry> {
+diff --git a/crates/rbmp-core/src/bgp/bgpls.rs b/crates/rbmp-core/src/bgp/bgpls.rs
+index 9313909..21900c0 100644
+--- a/crates/rbmp-core/src/bgp/bgpls.rs
++++ b/crates/rbmp-core/src/bgp/bgpls.rs
+@@ -1,5 +1,6 @@
+ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+ use bytes::Buf;
++use serde::{Deserialize, Serialize};
+ use crate::{Error, Result};
+ use super::types::{
+     BgpLsNlri, BgpLsNlriType, BgpLsProtocol, BgpLsReachNlri, BgpLsUnreachNlri,
+@@ -226,6 +227,303 @@ fn decode_prefix_nlri(
+     Ok(BgpLsNlri::Prefix { protocol, identifier, local_node, prefix })
+ }
+ 
++// ─── BGP-LS path attribute (type 29, RFC 7752 §3.3) ─────────────────────────
++
++#[derive(Debug, Clone, Serialize, Deserialize)]
++pub struct SrCapabilities {
++    pub flags:       u8,
++    pub srgb_ranges: Vec<(u32, u32)>,  // (base, range)
++}
++
++#[derive(Debug, Clone, Serialize, Deserialize)]
++pub struct SrLocalBlock {
++    pub flags:       u8,
++    pub srlb_ranges: Vec<(u32, u32)>,
++}
++
++#[derive(Debug, Clone, Serialize, Deserialize)]
++pub struct AdjSid {
++    pub flags:  u8,
++    pub weight: u8,
++    pub label:  u32,
++}
++
++#[derive(Debug, Clone, Serialize, Deserialize)]
++pub struct LanAdjSid {
++    pub flags:       u8,
++    pub weight:      u8,
++    pub neighbor_id: [u8; 7],
++    pub label:       u32,
++}
++
++#[derive(Debug, Clone, Serialize, Deserialize)]
++pub struct LsPrefixSid {
++    pub flags:     u8,
++    pub algorithm: u8,
++    pub label:     u32,
++}
++
++#[derive(Debug, Clone, Serialize, Deserialize)]
++pub struct FlexAlgoDef {
++    pub algo_id:     u8,
++    pub metric_type: u8,
++    pub calc_type:   u8,
++    pub priority:    u8,
++    pub exclude_any: Option<u32>,
++    pub include_any: Option<u32>,
++    pub include_all: Option<u32>,
++}
++
++#[derive(Debug, Clone, Serialize, Deserialize)]
++pub struct FlexAlgoPrefixMetric {
++    pub algo_id: u8,
++    pub metric:  u32,
++}
++
++/// Decoded BGP-LS path attribute (attribute type 29).
++/// Populated from `parse_bgpls_attribute` and stored in `PathAttributes.bgpls_attr`.
++#[derive(Debug, Clone, Default, Serialize, Deserialize)]
++pub struct BgpLsAttribute {
++    // ── Node attributes ──────────────────────────────────────────────────────
++    pub node_flags:          Option<u8>,
++    pub node_name:           Option<String>,
++    pub isis_area_id:        Option<Vec<u8>>,
++    pub ipv4_router_id:      Option<Ipv4Addr>,
++    pub ipv6_router_id:      Option<Ipv6Addr>,
++    pub sr_capabilities:     Option<SrCapabilities>,
++    pub sr_algorithm:        Vec<u8>,
++    pub sr_local_block:      Option<SrLocalBlock>,
++    // ── Link attributes ──────────────────────────────────────────────────────
++    pub link_metric_igp:     Option<u32>,
++    pub link_metric_te:      Option<u32>,
++    pub admin_group:         Option<u32>,
++    pub max_bandwidth:       Option<f32>,
++    pub max_reservable_bw:   Option<f32>,
++    pub unreserved_bw:       Vec<f32>,
++    pub srlg:                Vec<u32>,
++    pub adj_sid:             Vec<AdjSid>,
++    pub lan_adj_sid:         Vec<LanAdjSid>,
++    pub peer_node_sid:       Option<u32>,
++    pub peer_adj_sid:        Option<u32>,
++    pub peer_set_sid:        Option<u32>,
++    // ── Prefix attributes ────────────────────────────────────────────────────
++    pub prefix_metric:       Option<u32>,
++    pub ospf_fwd_addr:       Option<IpAddr>,
++    pub prefix_sid:          Vec<LsPrefixSid>,
++    // ── Flex Algorithm (RFC 9350) ─────────────────────────────────────────────
++    pub flex_algo_defs:            Vec<FlexAlgoDef>,
++    pub flex_algo_prefix_metrics:  Vec<FlexAlgoPrefixMetric>,
++    // ── Unknown TLVs preserved ───────────────────────────────────────────────
++    pub unknown_tlvs:        Vec<(u16, Vec<u8>)>,
++}
++
++/// Parse BGP-LS path attribute (type 29) — TLV encoded per RFC 7752 §3.3.
++/// Returns a `BgpLsAttribute`; unknown TLVs are preserved in `unknown_tlvs`.
++pub fn parse_bgpls_attribute(buf: &[u8]) -> BgpLsAttribute {
++    let mut attr = BgpLsAttribute::default();
++    let mut pos  = 0;
++
++    while pos + 4 <= buf.len() {
++        let tlv_type = u16::from_be_bytes([buf[pos], buf[pos+1]]);
++        let tlv_len  = u16::from_be_bytes([buf[pos+2], buf[pos+3]]) as usize;
++        pos += 4;
++        if pos + tlv_len > buf.len() { break; }
++        let data = &buf[pos..pos+tlv_len];
++        pos += tlv_len;
++
++        match tlv_type {
++            // ── Node attributes ──────────────────────────────────────────────
++            // TLV 1024: Node Flag Bits
++            1024 if tlv_len >= 1 => attr.node_flags = Some(data[0]),
++            // TLV 1026: Node Name (IS-IS TLV 137 hostname)
++            1026 => attr.node_name = Some(String::from_utf8_lossy(data).to_string()),
++            // TLV 1027: IS-IS Area Identifier
++            1027 => attr.isis_area_id = Some(data.to_vec()),
++            // TLV 1028: IPv4 Router-ID of Local Node
++            1028 if tlv_len == 4 => {
++                attr.ipv4_router_id = Some(Ipv4Addr::from([data[0], data[1], data[2], data[3]]));
++            }
++            // TLV 1029: IPv6 Router-ID of Local Node
++            1029 if tlv_len == 16 => {
++                let mut b = [0u8; 16]; b.copy_from_slice(data);
++                attr.ipv6_router_id = Some(Ipv6Addr::from(b));
++            }
++            // TLV 1034: SR Capabilities (RFC 9085 §2.1.2)
++            // Value: flags(1) + reserved(1) + [range(3) + SID-sub-TLV(type(1)+len(1)+value(3))]...
++            1034 if tlv_len >= 2 => {
++                let flags = data[0];
++                let mut ranges = Vec::new();
++                let mut i = 2; // skip flags(1) + reserved(1)
++                // Each SRGB block: range(3) + SID-sub-TLV type(1)+len(1)+base(3) = 8 bytes
++                while i + 8 <= data.len() {
++                    let range = u32::from_be_bytes([0, data[i], data[i+1], data[i+2]]);
++                    // data[i+3] = SID sub-TLV type, data[i+4] = SID sub-TLV len (=3)
++                    let base = u32::from_be_bytes([0, data[i+5], data[i+6], data[i+7]]);
++                    ranges.push((base, range));
++                    i += 8;
++                }
++                attr.sr_capabilities = Some(SrCapabilities { flags, srgb_ranges: ranges });
++            }
++            // TLV 1035: SR Algorithm
++            1035 => attr.sr_algorithm = data.to_vec(),
++            // TLV 1036: SR Local Block (SRLB)
++            1036 if tlv_len >= 2 => {
++                let flags = data[0];
++                let mut ranges = Vec::new();
++                let mut i = 2;
++                while i + 6 <= data.len() {
++                    let range = u32::from_be_bytes([0, data[i], data[i+1], data[i+2]]);
++                    let base  = if i + 6 <= data.len() {
++                        u32::from_be_bytes([0, data[i+3], data[i+4], data[i+5]])
++                    } else { 0 };
++                    ranges.push((base, range));
++                    i += 6;
++                }
++                attr.sr_local_block = Some(SrLocalBlock { flags, srlb_ranges: ranges });
++            }
++            // ── Link attributes ──────────────────────────────────────────────
++            // TLV 1081: Max Link Bandwidth (IEEE 754 float, bytes/sec)
++            1081 if tlv_len == 4 => {
++                attr.max_bandwidth = Some(f32::from_be_bytes([data[0], data[1], data[2], data[3]]));
++            }
++            // TLV 1082: Max Reservable Link Bandwidth
++            1082 if tlv_len == 4 => {
++                attr.max_reservable_bw = Some(f32::from_be_bytes([data[0], data[1], data[2], data[3]]));
++            }
++            // TLV 1083: Unreserved Bandwidth (8 × 4-byte IEEE 754 floats)
++            1083 if tlv_len == 32 => {
++                for i in 0..8 {
++                    attr.unreserved_bw.push(f32::from_be_bytes(
++                        [data[i*4], data[i*4+1], data[i*4+2], data[i*4+3]]));
++                }
++            }
++            // TLV 1088: TE Admin Group / Link Color
++            1088 if tlv_len == 4 => {
++                attr.admin_group = Some(u32::from_be_bytes([data[0], data[1], data[2], data[3]]));
++            }
++            // TLV 1092: TE Default Metric
++            1092 if tlv_len == 4 => {
++                attr.link_metric_te = Some(u32::from_be_bytes([data[0], data[1], data[2], data[3]]));
++            }
++            // TLV 1094: SRLG (Shared Risk Link Group) — array of u32
++            1094 => {
++                let mut i = 0;
++                while i + 4 <= data.len() {
++                    attr.srlg.push(u32::from_be_bytes([data[i], data[i+1], data[i+2], data[i+3]]));
++                    i += 4;
++                }
++            }
++            // TLV 1095: IGP Metric (variable 1-3 bytes)
++            1095 if tlv_len >= 1 && tlv_len <= 4 => {
++                let metric = match tlv_len {
++                    1 => data[0] as u32,
++                    2 => u16::from_be_bytes([data[0], data[1]]) as u32,
++                    3 => u32::from_be_bytes([0, data[0], data[1], data[2]]),
++                    _ => u32::from_be_bytes([data[0], data[1], data[2], data[3]]),
++                };
++                attr.link_metric_igp = Some(metric);
++            }
++            // TLV 1099: Adjacency SID (RFC 8667 §2.2.1)
++            1099 if tlv_len >= 7 => {
++                let flags  = data[0];
++                let weight = data[1];
++                // bytes 2-3 reserved, then 3-byte label
++                let label  = u32::from_be_bytes([0, data[4], data[5], data[6]]);
++                attr.adj_sid.push(AdjSid { flags, weight, label });
++            }
++            // TLV 1100: LAN Adjacency SID — flags(1)+weight(1)+neighbor_id(7)+reserved(2)+label(3) = 14 bytes
++            1100 if tlv_len >= 14 => {
++                let flags  = data[0];
++                let weight = data[1];
++                let mut neighbor_id = [0u8; 7];
++                neighbor_id.copy_from_slice(&data[2..9]);
++                // bytes 9-10 reserved, bytes 11-13 = 3-byte label
++                let label = u32::from_be_bytes([0, data[11], data[12], data[13]]);
++                attr.lan_adj_sid.push(LanAdjSid { flags, weight, neighbor_id, label });
++            }
++            // TLV 1101: Peer Node SID (BGP EPE)
++            1101 if tlv_len >= 7 => {
++                attr.peer_node_sid = Some(u32::from_be_bytes([0, data[4], data[5], data[6]]));
++            }
++            // TLV 1102: Peer Adjacency SID (BGP EPE)
++            1102 if tlv_len >= 7 => {
++                attr.peer_adj_sid = Some(u32::from_be_bytes([0, data[4], data[5], data[6]]));
++            }
++            // TLV 1103: Peer Set SID (BGP EPE)
++            1103 if tlv_len >= 7 => {
++                attr.peer_set_sid = Some(u32::from_be_bytes([0, data[4], data[5], data[6]]));
++            }
++            // ── Prefix attributes ────────────────────────────────────────────
++            // TLV 1155: Prefix Metric
++            1155 if tlv_len == 4 => {
++                attr.prefix_metric = Some(u32::from_be_bytes([data[0], data[1], data[2], data[3]]));
++            }
++            // TLV 1156: OSPF Forwarding Address
++            1156 if tlv_len == 4 => {
++                attr.ospf_fwd_addr = Some(IpAddr::V4(Ipv4Addr::from([data[0], data[1], data[2], data[3]])));
++            }
++            1156 if tlv_len == 16 => {
++                let mut b = [0u8; 16]; b.copy_from_slice(data);
++                attr.ospf_fwd_addr = Some(IpAddr::V6(Ipv6Addr::from(b)));
++            }
++            // TLV 1158: Prefix-SID (BGP-LS variant, RFC 8667 §2.1)
++            1158 if tlv_len >= 7 => {
++                let flags     = data[0];
++                let algorithm = data[1];
++                // bytes 2-3 reserved, then 3-byte label or 4-byte index
++                let label = if tlv_len >= 8 {
++                    u32::from_be_bytes([data[4], data[5], data[6], data[7]])
++                } else {
++                    u32::from_be_bytes([0, data[4], data[5], data[6]])
++                };
++                attr.prefix_sid.push(LsPrefixSid { flags, algorithm, label });
++            }
++            // ── Flex Algorithm (RFC 9350) ─────────────────────────────────────
++            // TLV 1039: Flex Algorithm Definition
++            1039 if tlv_len >= 4 => {
++                let algo_id     = data[0];
++                let metric_type = data[1];
++                let calc_type   = data[2];
++                let priority    = data[3];
++                let mut exclude_any = None;
++                let mut include_any = None;
++                let mut include_all = None;
++                let mut i = 4;
++                // Optional sub-TLVs follow
++                while i + 4 <= data.len() {
++                    let st   = u16::from_be_bytes([data[i], data[i+1]]);
++                    let slen = u16::from_be_bytes([data[i+2], data[i+3]]) as usize;
++                    i += 4;
++                    if i + slen > data.len() { break; }
++                    let sv = &data[i..i+slen]; i += slen;
++                    if slen >= 4 {
++                        let v = u32::from_be_bytes([sv[0], sv[1], sv[2], sv[3]]);
++                        match st {
++                            1 => exclude_any = Some(v),
++                            2 => include_any = Some(v),
++                            3 => include_all = Some(v),
++                            _ => {}
++                        }
++                    }
++                }
++                attr.flex_algo_defs.push(FlexAlgoDef {
++                    algo_id, metric_type, calc_type, priority,
++                    exclude_any, include_any, include_all,
++                });
++            }
++            // TLV 1044: Flex Algorithm Prefix Metric
++            1044 if tlv_len >= 5 => {
++                attr.flex_algo_prefix_metrics.push(FlexAlgoPrefixMetric {
++                    algo_id: data[0],
++                    metric:  u32::from_be_bytes([data[1], data[2], data[3], data[4]]),
++                });
++            }
++            _ => attr.unknown_tlvs.push((tlv_type, data.to_vec())),
++        }
++    }
++    attr
++}
++
+ #[cfg(test)]
+ mod tests {
+     use super::*;
+@@ -245,6 +543,63 @@ mod tests {
+         assert!(matches!(result[0], BgpLsNlri::Unknown { nlri_type: 99, .. }));
+     }
+ 
++    #[test]
++    fn test_bgpls_attr_link_metrics_srlg_adjsid() {
++        let mut buf = Vec::new();
++        // TLV 1095: IGP Metric = 100 (3 bytes)
++        buf.extend_from_slice(&1095u16.to_be_bytes());
++        buf.extend_from_slice(&3u16.to_be_bytes());
++        buf.extend_from_slice(&[0, 0, 100]);
++        // TLV 1094: SRLG with two groups: 10, 20
++        buf.extend_from_slice(&1094u16.to_be_bytes());
++        buf.extend_from_slice(&8u16.to_be_bytes());
++        buf.extend_from_slice(&10u32.to_be_bytes());
++        buf.extend_from_slice(&20u32.to_be_bytes());
++        // TLV 1099: Adjacency SID — flags(1)+weight(1)+reserved(2)+label(3) = 7 bytes
++        buf.extend_from_slice(&1099u16.to_be_bytes());
++        buf.extend_from_slice(&7u16.to_be_bytes());
++        buf.extend_from_slice(&[0x30, 0x01, 0, 0, 0, 0x10, 0x00]); // label = 0x001000 = 4096
++        let attr = parse_bgpls_attribute(&buf);
++        assert_eq!(attr.link_metric_igp, Some(100));
++        assert_eq!(attr.srlg, vec![10, 20]);
++        assert_eq!(attr.adj_sid.len(), 1);
++        assert_eq!(attr.adj_sid[0].label, 0x001000);
++    }
++
++    #[test]
++    fn test_bgpls_attr_node_name() {
++        let name = b"pe1.example.com";
++        let mut buf = Vec::new();
++        buf.extend_from_slice(&1026u16.to_be_bytes());
++        buf.extend_from_slice(&(name.len() as u16).to_be_bytes());
++        buf.extend_from_slice(name);
++        let attr = parse_bgpls_attribute(&buf);
++        assert_eq!(attr.node_name.as_deref(), Some("pe1.example.com"));
++    }
++
++    #[test]
++    fn test_bgpls_attr_sr_capabilities() {
++        // RFC 9085 §2.1.2: TLV 1034 value = flags(1)+reserved(1)+[range(3)+SID-sub-TLV(5)...]
++        // SID sub-TLV: type(1)=1, length(1)=3, value(3)=base label
++        let mut buf = Vec::new();
++        buf.extend_from_slice(&1034u16.to_be_bytes());
++        buf.extend_from_slice(&10u16.to_be_bytes()); // value length = 10
++        buf.push(0xC0); // flags: I-flag + V-flag
++        buf.push(0);    // reserved
++        // Range sub-TLV: type(1)=9, length(1)=3, range(3)=62500 (0x00F424)
++        buf.extend_from_slice(&[0, 0xF4, 0x24]); // range bytes (raw, no sub-TLV wrapper used here)
++        // SID/Label sub-TLV: type(1)=1, length(1)=3, base(3)=256 (0x000100)
++        buf.extend_from_slice(&[1, 3]);           // sub-TLV type=1, len=3
++        buf.extend_from_slice(&[0, 0x01, 0x00]);  // base = 256
++        let attr = parse_bgpls_attribute(&buf);
++        let caps = attr.sr_capabilities.unwrap();
++        assert_eq!(caps.flags, 0xC0);
++        assert_eq!(caps.srgb_ranges.len(), 1);
++        let (base, range) = caps.srgb_ranges[0];
++        assert_eq!(range, 62500);
++        assert_eq!(base, 256);
++    }
++
+     #[test]
+     fn test_node_nlri_protocol_identifier() {
+         // Build a minimal Node NLRI: type=1, len=13 (9 hdr + 4 empty outer TLV)
+diff --git a/crates/rbmp-core/src/bgp/capabilities.rs b/crates/rbmp-core/src/bgp/capabilities.rs
+index 4f55361..23995ca 100644
+--- a/crates/rbmp-core/src/bgp/capabilities.rs
++++ b/crates/rbmp-core/src/bgp/capabilities.rs
+@@ -85,8 +85,8 @@ fn parse_one_capability(code: u8, data: &[u8]) -> Result<BgpCapability> {
+         }
+         // Enhanced Route Refresh (RFC 7313)
+         70 => Ok(BgpCapability::EnhancedRouteRefresh),
+-        // Long-Lived Graceful Restart (draft-uttaro-idr-bgp-persistence)
+-        71 => Ok(BgpCapability::LongLivedGracefulRestart),
++        // Long-Lived Graceful Restart (RFC 9494)
++        71 => Ok(BgpCapability::LongLivedGracefulRestart { entries: data.to_vec() }),
+         // BGP Role (RFC 9234): role byte 0=Provider, 1=RS, 2=RS-Client, 3=Customer, 4=Peer
+         9 if !data.is_empty() => Ok(BgpCapability::BgpRole(data[0])),
+         // FQDN (draft-walton-bgp-hostname-capability)
+diff --git a/crates/rbmp-core/src/bgp/evpn.rs b/crates/rbmp-core/src/bgp/evpn.rs
+index d8f968a..fe9958f 100644
+--- a/crates/rbmp-core/src/bgp/evpn.rs
++++ b/crates/rbmp-core/src/bgp/evpn.rs
+@@ -44,6 +44,49 @@ pub enum EvpnRoute {
+         gw_ip:        Option<IpAddr>,
+         mpls_label:   u32,
+     },
++    /// Type 6: Selective Multicast Ethernet Tag A-D route (RFC 8365 §6.3)
++    SelectiveMulticastEthernetTag {
++        rd:                    [u8; 8],
++        ethernet_tag:          u32,
++        multicast_source:      IpAddr,
++        multicast_group:       IpAddr,
++        originating_router_ip: IpAddr,
++    },
++    /// Type 7: IGMP Join Synch A-D route (RFC 8365 §11.2)
++    IgmpJoinSynch {
++        rd:                    [u8; 8],
++        ethernet_tag:          u32,
++        multicast_source:      IpAddr,
++        multicast_group:       IpAddr,
++        originating_router_ip: IpAddr,
++    },
++    /// Type 8: IGMP Leave Synch A-D route (RFC 8365 §11.2)
++    IgmpLeaveSynch {
++        rd:                    [u8; 8],
++        ethernet_tag:          u32,
++        multicast_source:      IpAddr,
++        multicast_group:       IpAddr,
++        originating_router_ip: IpAddr,
++    },
++    /// Type 9: Per-Region I-PMSI A-D route (RFC 9251)
++    PerRegionIPmsi {
++        rd:                    [u8; 8],
++        ethernet_tag:          u32,
++        originating_router_ip: IpAddr,
++    },
++    /// Type 10: S-PMSI A-D route (RFC 9251)
++    SPmsi {
++        rd:                    [u8; 8],
++        ethernet_tag:          u32,
++        multicast_source:      IpAddr,
++        multicast_group:       IpAddr,
++        originating_router_ip: IpAddr,
++    },
++    /// Type 11: Leaf A-D route (RFC 9572)
++    LeafAD {
++        route_key: Vec<u8>,
++        path_id:   u32,
++    },
+     /// Unknown type — preserved for forward compatibility
+     Unknown { route_type: u8, data: Vec<u8> },
+ }
+@@ -56,6 +99,12 @@ impl EvpnRoute {
+             Self::InclusiveMulticastEthernetTag { .. } => "inclusive-multicast-ethernet-tag",
+             Self::EthernetSegment { .. }               => "ethernet-segment",
+             Self::IpPrefix { .. }                      => "ip-prefix",
++            Self::SelectiveMulticastEthernetTag { .. } => "selective-multicast-ethernet-tag",
++            Self::IgmpJoinSynch { .. }                 => "igmp-join-synch",
++            Self::IgmpLeaveSynch { .. }                => "igmp-leave-synch",
++            Self::PerRegionIPmsi { .. }                => "per-region-i-pmsi",
++            Self::SPmsi { .. }                         => "s-pmsi",
++            Self::LeafAD { .. }                        => "leaf-ad",
+             Self::Unknown { .. }                       => "unknown",
+         }
+     }
+@@ -67,6 +116,12 @@ impl EvpnRoute {
+             Self::InclusiveMulticastEthernetTag { .. } => 3,
+             Self::EthernetSegment { .. }               => 4,
+             Self::IpPrefix { .. }                      => 5,
++            Self::SelectiveMulticastEthernetTag { .. } => 6,
++            Self::IgmpJoinSynch { .. }                 => 7,
++            Self::IgmpLeaveSynch { .. }                => 8,
++            Self::PerRegionIPmsi { .. }                => 9,
++            Self::SPmsi { .. }                         => 10,
++            Self::LeafAD { .. }                        => 11,
+             Self::Unknown { route_type, .. }           => *route_type,
+         }
+     }
+@@ -199,6 +254,87 @@ fn parse_evpn_route(route_type: u8, v: &[u8]) -> Result<EvpnRoute> {
+             let mpls_label = decode_mpls_label(&v[label_off..label_off + 3]);
+             Ok(EvpnRoute::IpPrefix { rd, esi, ethernet_tag, prefix, prefix_len, gw_ip, mpls_label })
+         }
++        6 | 7 | 8 => {
++            // Types 6,7,8: RD(8) + ETag(4) + src_ip_len(1) + src_ip(4/16)
++            //             + grp_ip_len(1) + grp_ip(4/16) + orig_ip_len(1) + orig_ip(4/16)
++            if v.len() < 13 {
++                return Err(Error::UnexpectedEof { needed: 13, have: v.len() });
++            }
++            let mut rd = [0u8; 8]; rd.copy_from_slice(&v[0..8]);
++            let ethernet_tag = u32::from_be_bytes([v[8], v[9], v[10], v[11]]);
++            let mut pos = 12;
++            let src_ip_len = v[pos]; pos += 1;
++            let multicast_source = decode_evpn_router_ip(src_ip_len, &v[pos..])?;
++            pos += if src_ip_len == 32 { 4 } else { 16 };
++            if pos >= v.len() {
++                return Err(Error::UnexpectedEof { needed: pos + 1, have: v.len() });
++            }
++            let grp_ip_len = v[pos]; pos += 1;
++            let multicast_group = decode_evpn_router_ip(grp_ip_len, &v[pos..])?;
++            pos += if grp_ip_len == 32 { 4 } else { 16 };
++            if pos >= v.len() {
++                return Err(Error::UnexpectedEof { needed: pos + 1, have: v.len() });
++            }
++            let orig_ip_len = v[pos]; pos += 1;
++            let originating_router_ip = decode_evpn_router_ip(orig_ip_len, &v[pos..])?;
++            match route_type {
++                6 => Ok(EvpnRoute::SelectiveMulticastEthernetTag {
++                    rd, ethernet_tag, multicast_source, multicast_group, originating_router_ip,
++                }),
++                7 => Ok(EvpnRoute::IgmpJoinSynch {
++                    rd, ethernet_tag, multicast_source, multicast_group, originating_router_ip,
++                }),
++                _ => Ok(EvpnRoute::IgmpLeaveSynch {
++                    rd, ethernet_tag, multicast_source, multicast_group, originating_router_ip,
++                }),
++            }
++        }
++        9 => {
++            // Type 9: RD(8) + ETag(4) + orig_ip_len(1) + orig_ip(4/16)
++            if v.len() < 13 {
++                return Err(Error::UnexpectedEof { needed: 13, have: v.len() });
++            }
++            let mut rd = [0u8; 8]; rd.copy_from_slice(&v[0..8]);
++            let ethernet_tag = u32::from_be_bytes([v[8], v[9], v[10], v[11]]);
++            let ip_len = v[12];
++            let originating_router_ip = decode_evpn_router_ip(ip_len, &v[13..])?;
++            Ok(EvpnRoute::PerRegionIPmsi { rd, ethernet_tag, originating_router_ip })
++        }
++        10 => {
++            // Type 10: same structure as type 6/7/8
++            if v.len() < 13 {
++                return Err(Error::UnexpectedEof { needed: 13, have: v.len() });
++            }
++            let mut rd = [0u8; 8]; rd.copy_from_slice(&v[0..8]);
++            let ethernet_tag = u32::from_be_bytes([v[8], v[9], v[10], v[11]]);
++            let mut pos = 12;
++            let src_ip_len = v[pos]; pos += 1;
++            let multicast_source = decode_evpn_router_ip(src_ip_len, &v[pos..])?;
++            pos += if src_ip_len == 32 { 4 } else { 16 };
++            if pos >= v.len() {
++                return Err(Error::UnexpectedEof { needed: pos + 1, have: v.len() });
++            }
++            let grp_ip_len = v[pos]; pos += 1;
++            let multicast_group = decode_evpn_router_ip(grp_ip_len, &v[pos..])?;
++            pos += if grp_ip_len == 32 { 4 } else { 16 };
++            if pos >= v.len() {
++                return Err(Error::UnexpectedEof { needed: pos + 1, have: v.len() });
++            }
++            let orig_ip_len = v[pos]; pos += 1;
++            let originating_router_ip = decode_evpn_router_ip(orig_ip_len, &v[pos..])?;
++            Ok(EvpnRoute::SPmsi { rd, ethernet_tag, multicast_source, multicast_group, originating_router_ip })
++        }
++        11 => {
++            // Type 11: Leaf A-D route — route_key (variable) + path_id(4)
++            if v.len() < 4 {
++                return Err(Error::UnexpectedEof { needed: 4, have: v.len() });
++            }
++            let path_id = u32::from_be_bytes([
++                v[v.len()-4], v[v.len()-3], v[v.len()-2], v[v.len()-1],
++            ]);
++            let route_key = v[..v.len()-4].to_vec();
++            Ok(EvpnRoute::LeafAD { route_key, path_id })
++        }
+         _ => Ok(EvpnRoute::Unknown { route_type, data: v.to_vec() }),
+     }
+ }
+@@ -232,6 +368,68 @@ fn decode_evpn_router_ip(ip_len: u8, buf: &[u8]) -> Result<IpAddr> {
+ mod tests {
+     use super::*;
+ 
++    #[test]
++    fn test_evpn_type6_selective_multicast() {
++        // RD(8) + ETag(4) + src_ip_len(1)+src_ip(4) + grp_ip_len(1)+grp_ip(4) + orig_ip_len(1)+orig_ip(4)
++        let mut v = vec![];
++        v.extend_from_slice(&[0u8; 8]);       // RD
++        v.extend_from_slice(&[0, 0, 0, 1]);   // ETag=1
++        v.push(32);                            // src_ip_len
++        v.extend_from_slice(&[239, 1, 1, 1]); // 239.1.1.1
++        v.push(32);                            // grp_ip_len
++        v.extend_from_slice(&[232, 0, 0, 1]); // 232.0.0.1
++        v.push(32);                            // orig_ip_len
++        v.extend_from_slice(&[10, 0, 0, 1]);  // 10.0.0.1
++        let mut buf = vec![6u8, v.len() as u8];
++        buf.extend_from_slice(&v);
++        let routes = decode_evpn_nlri(&buf).unwrap();
++        assert_eq!(routes.len(), 1);
++        assert_eq!(routes[0].route_type_code(), 6);
++        assert_eq!(routes[0].route_type_name(), "selective-multicast-ethernet-tag");
++    }
++
++    #[test]
++    fn test_evpn_type7_igmp_join() {
++        let mut v = vec![];
++        v.extend_from_slice(&[0u8; 8]);
++        v.extend_from_slice(&[0, 0, 0, 2]);
++        v.push(32); v.extend_from_slice(&[1, 1, 1, 1]);
++        v.push(32); v.extend_from_slice(&[225, 0, 0, 1]);
++        v.push(32); v.extend_from_slice(&[10, 0, 0, 2]);
++        let mut buf = vec![7u8, v.len() as u8];
++        buf.extend_from_slice(&v);
++        let routes = decode_evpn_nlri(&buf).unwrap();
++        assert_eq!(routes[0].route_type_code(), 7);
++        assert_eq!(routes[0].route_type_name(), "igmp-join-synch");
++    }
++
++    #[test]
++    fn test_evpn_type9_per_region_ipmsi() {
++        let mut v = vec![];
++        v.extend_from_slice(&[0u8; 8]);
++        v.extend_from_slice(&[0, 0, 0, 5]);
++        v.push(32); v.extend_from_slice(&[10, 0, 0, 5]);
++        let mut buf = vec![9u8, v.len() as u8];
++        buf.extend_from_slice(&v);
++        let routes = decode_evpn_nlri(&buf).unwrap();
++        assert_eq!(routes[0].route_type_code(), 9);
++        assert_eq!(routes[0].route_type_name(), "per-region-i-pmsi");
++    }
++
++    #[test]
++    fn test_evpn_type11_leaf_ad() {
++        // route_key(4) + path_id(4)
++        let v = vec![0xAA, 0xBB, 0xCC, 0xDD, 0, 0, 0, 42];
++        let mut buf = vec![11u8, v.len() as u8];
++        buf.extend_from_slice(&v);
++        let routes = decode_evpn_nlri(&buf).unwrap();
++        assert_eq!(routes[0].route_type_code(), 11);
++        match &routes[0] {
++            EvpnRoute::LeafAD { path_id, .. } => assert_eq!(*path_id, 42),
++            _ => panic!("expected LeafAD"),
++        }
++    }
++
+     #[test]
+     fn test_evpn_type1_auto_discovery() {
+         // RD(8) + ESI(10) + ETag(4) + Label(3) = 25 bytes
+diff --git a/crates/rbmp-core/src/bgp/mod.rs b/crates/rbmp-core/src/bgp/mod.rs
+index 1bca60d..5088ef8 100644
+--- a/crates/rbmp-core/src/bgp/mod.rs
++++ b/crates/rbmp-core/src/bgp/mod.rs
+@@ -8,6 +8,7 @@ pub mod evpn;
+ pub mod flowspec;
+ pub mod srv6;
+ pub mod bgpls;
++pub mod srpolicy;
+ 
+ pub use types::*;
+ pub use update::parse_bgp_update;
+diff --git a/crates/rbmp-core/src/bgp/types.rs b/crates/rbmp-core/src/bgp/types.rs
+index e236dde..4b932cc 100644
+--- a/crates/rbmp-core/src/bgp/types.rs
++++ b/crates/rbmp-core/src/bgp/types.rs
+@@ -6,6 +6,23 @@ use smallvec::SmallVec;
+ use super::evpn::EvpnRoute;
+ use super::flowspec::FlowspecNlri;
+ 
++// ─── LLGR state machine (RFC 9494) ───────────────────────────────────────────
++
++/// Lifecycle state of a route under Long-Lived Graceful Restart.
++/// Transitions: Normal → StaleMarked (on peer Down + LLGR active)
++///              StaleMarked → Deleted (after stale timer expiry)
++///              Any → Normal (on route re-announcement from peer)
++#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
++#[serde(rename_all = "snake_case")]
++pub enum LlgrState {
++    #[default]
++    Normal,
++    /// Route is stale; COMMUNITY_LLGR_STALE attached; still usable for forwarding
++    StaleMarked,
++    /// Stale timer expired; route should be removed
++    Deleted,
++}
++
+ // ─── AFI / SAFI ───────────────────────────────────────────────────────────────
+ 
+ #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+@@ -33,12 +50,16 @@ impl From<u16> for Afi {
+ pub enum Safi {
+     Unicast,
+     Multicast,
++    MplsVpnMulticast,
+     LabeledUnicast,
+     MplsVpn,
+     Evpn,
+     BgpLs,
++    SrPolicy,
+     Flowspec,
+     FlowspecVpn,
++    Vpls,
++    RouteTargetConstraint,
+     Unknown(u8),
+ }
+ 
+@@ -48,9 +69,13 @@ impl From<u8> for Safi {
+             1   => Self::Unicast,
+             2   => Self::Multicast,
+             4   => Self::LabeledUnicast,
++            5   => Self::MplsVpnMulticast,
++            65  => Self::Vpls,
+             70  => Self::Evpn,
+             71  => Self::BgpLs,
++            73  => Self::SrPolicy,
+             128 => Self::MplsVpn,
++            132 => Self::RouteTargetConstraint,
+             133 => Self::Flowspec,
+             134 => Self::FlowspecVpn,
+             _   => Self::Unknown(v),
+@@ -113,15 +138,19 @@ impl Afi {
+ impl Safi {
+     pub fn as_u8(self) -> u8 {
+         match self {
+-            Self::Unicast        => 1,
+-            Self::Multicast      => 2,
+-            Self::LabeledUnicast => 4,
+-            Self::Evpn           => 70,
+-            Self::BgpLs          => 71,
+-            Self::MplsVpn        => 128,
+-            Self::Flowspec       => 133,
+-            Self::FlowspecVpn    => 134,
+-            Self::Unknown(v)     => v,
++            Self::Unicast                => 1,
++            Self::Multicast              => 2,
++            Self::LabeledUnicast         => 4,
++            Self::MplsVpnMulticast       => 5,
++            Self::Vpls                   => 65,
++            Self::Evpn                   => 70,
++            Self::BgpLs                  => 71,
++            Self::SrPolicy               => 73,
++            Self::MplsVpn                => 128,
++            Self::RouteTargetConstraint  => 132,
++            Self::Flowspec               => 133,
++            Self::FlowspecVpn            => 134,
++            Self::Unknown(v)             => v,
+         }
+     }
+ }
+@@ -465,7 +494,9 @@ pub enum BgpCapability {
+     FourByteAsn(u32),
+     AddPath(Vec<(AfiSafi, u8)>),  // u8 = send(1), recv(2), both(3)
+     EnhancedRouteRefresh,
+-    LongLivedGracefulRestart,
++    /// RFC 9494: carries per-AFI/SAFI stale-time entries
++    /// Each entry: AFI(2)+SAFI(1)+flags(1)+stale_time_secs(3) = 7 bytes
++    LongLivedGracefulRestart { entries: Vec<u8> },
+     Fqdn { hostname: String, domain: String },
+     Unknown { code: u8, data: Vec<u8> },
+ }
+@@ -482,7 +513,7 @@ impl BgpCapability {
+             Self::FourByteAsn(_)           => 65,
+             Self::AddPath(_)               => 69,
+             Self::EnhancedRouteRefresh     => 70,
+-            Self::LongLivedGracefulRestart => 71,
++            Self::LongLivedGracefulRestart { .. } => 71,
+             Self::Fqdn { .. }              => 73,
+             Self::Unknown { code, .. }     => *code,
+         }
+@@ -606,6 +637,13 @@ pub struct PathAttributes {
+     // RFC 7752: BGP-LS NLRI (AFI=16388, SAFI=71)
+     pub bgpls_reach:          Option<BgpLsReachNlri>,
+     pub bgpls_unreach:        Option<BgpLsUnreachNlri>,
++    // RV3-2: BGP-LS path attribute (type 29) — topology details
++    pub bgpls_attr:           Option<super::bgpls::BgpLsAttribute>,
++    // RV3-1: SR Policy NLRI (AFI=1/2, SAFI=73)
++    pub sr_policy_nlris:      Vec<super::srpolicy::SrPolicyNlri>,
++    pub sr_policy_paths:      Vec<super::srpolicy::CandidatePath>,
++    // RV3-1: Route Target Constraint NLRI (AFI=1/2, SAFI=132)
++    pub rtc_nlris:            Vec<super::srpolicy::RtcNlri>,
+     pub unknown:              Vec<RawAttribute>,
+ }
+ 
+diff --git a/crates/rbmp-core/src/lib.rs b/crates/rbmp-core/src/lib.rs
+index 68dc8c9..783048d 100644
+--- a/crates/rbmp-core/src/lib.rs
++++ b/crates/rbmp-core/src/lib.rs
+@@ -1,5 +1,6 @@
+ pub mod bmp;
+ pub mod bgp;
+ pub mod error;
++pub mod collector_protocol;
+ 
+ pub use error::{Error, Result};
+diff --git a/crates/rbmp-rib/Cargo.toml b/crates/rbmp-rib/Cargo.toml
+index 5c3d678..fe6f33d 100644
+--- a/crates/rbmp-rib/Cargo.toml
++++ b/crates/rbmp-rib/Cargo.toml
+@@ -13,6 +13,7 @@ dashmap     = { workspace = true }
+ parking_lot = { workspace = true }
+ serde       = { workspace = true }
+ serde_json  = { workspace = true }
++serde_yaml  = { workspace = true }
+ chrono      = { workspace = true }
+ uuid        = { workspace = true }
+ tracing     = { workspace = true }
+diff --git a/crates/rbmp-rib/src/lib.rs b/crates/rbmp-rib/src/lib.rs
+index 061d59f..16c7b0a 100644
+--- a/crates/rbmp-rib/src/lib.rs
++++ b/crates/rbmp-rib/src/lib.rs
+@@ -2,8 +2,10 @@ pub mod session;
+ pub mod table;
+ pub mod manager;
+ pub mod event;
++pub mod filter;
+ 
+ pub use session::{BmpSession, PeerSession, PeerState};
+ pub use table::RibTable;
+ pub use manager::RibManager;
+ pub use event::{RibEvent, RouteAction};
++pub use filter::{FilterEngine, FilterVerdict, RouteFilter, FilterAction};
+diff --git a/crates/rbmp-rib/src/manager.rs b/crates/rbmp-rib/src/manager.rs
+index 3d7a79c..2d0a23c 100644
+--- a/crates/rbmp-rib/src/manager.rs
++++ b/crates/rbmp-rib/src/manager.rs
+@@ -9,6 +9,7 @@ use rbmp_core::bgp::types::BgpCapability;
+ use crate::event::{RibEvent, RibEventPayload, RibEventPayload::*, RouteChange, RouteAction};
+ use crate::session::{BmpSession, PeerSession};
+ use crate::table::{RibEntry, RibTable};
++use crate::filter::{FilterEngine, FilterVerdict};
+ 
+ /// Central RIB manager: owns all per-speaker sessions and per-peer route tables.
+ /// Driven by BmpMessage from the receiver; emits RibEvents to subscribers.
+@@ -17,6 +18,8 @@ pub struct RibManager {
+     /// peer_addr → RIB table (across all speakers; a peer is globally unique by address)
+     ribs: HashMap<IpAddr, RibTable>,
+     event_tx: broadcast::Sender<RibEvent>,
++    /// Optional programmable route filter chain (YAML DSL)
++    filter: Option<FilterEngine>,
+ }
+ 
+ impl RibManager {
+@@ -26,6 +29,7 @@ impl RibManager {
+             speakers: HashMap::new(),
+             ribs:     HashMap::new(),
+             event_tx: tx,
++            filter:   None,
+         }, rx)
+     }
+ 
+@@ -33,6 +37,25 @@ impl RibManager {
+         self.event_tx.subscribe()
+     }
+ 
++    /// Replace the active filter engine (called on config reload).
++    pub fn set_filter(&mut self, engine: FilterEngine) {
++        self.filter = Some(engine);
++    }
++
++    /// Remove the filter engine (all routes are default-accepted).
++    pub fn clear_filter(&mut self) {
++        self.filter = None;
++    }
++
++    /// Expire LLGR-stale routes for a peer whose stale timer has elapsed.
++    /// Returns count of routes deleted.
++    pub fn expire_stale_for_peer(&mut self, peer_addr: IpAddr, stale_secs: u32) -> usize {
++        let now = Utc::now();
++        self.ribs.get_mut(&peer_addr)
++            .map(|rib| rib.drain_deleted_stale(now, stale_secs))
++            .unwrap_or(0)
++    }
++
+     /// Feed a parsed BmpMessage into the RIB. Emits RibEvents on state changes.
+     pub fn process(&mut self, msg: BmpMessage) {
+         let speaker = msg.speaker_addr;
+@@ -81,13 +104,27 @@ impl RibManager {
+                 let peer_addr = peer_header.peer_address;
+                 let reason_str = format!("{:?}", reason);
+ 
++                let llgr_stale_secs = self.speakers.get(&speaker)
++                    .and_then(|s| s.peers.get(&peer_addr))
++                    .filter(|p| p.llgr_active)
++                    .map(|p| p.llgr_stale_secs);
++
+                 if let Some(sess) = self.speakers.get_mut(&speaker) {
+                     if let Some(peer) = sess.peers.get_mut(&peer_addr) {
+                         peer.on_down(now);
+                     }
+                 }
+-                self.ribs.entry(peer_addr).or_default().clear_all();
+-                info!(%speaker, %peer_addr, %reason_str, "BGP peer down");
++
++                if let Some(stale_secs) = llgr_stale_secs {
++                    // LLGR active: mark routes stale instead of deleting them
++                    if let Some(rib) = self.ribs.get_mut(&peer_addr) {
++                        rib.mark_stale_all(now);
++                    }
++                    info!(%speaker, %peer_addr, %reason_str, stale_secs, "BGP peer down — LLGR stale marking");
++                } else {
++                    self.ribs.entry(peer_addr).or_default().clear_all();
++                    info!(%speaker, %peer_addr, %reason_str, "BGP peer down");
++                }
+                 self.emit(speaker, PeerDown { peer_header, reason: reason_str });
+             }
+             BmpPayload::RouteMonitoring { peer_header, update } => {
+@@ -127,6 +164,23 @@ impl RibManager {
+ 
+                 // Process announcements — carry path_id from NLRI (RFC 7911)
+                 for (prefix, path_id) in update.all_announced_with_path_id() {
++                    // Apply programmable filter before installing / emitting
++                    if let Some(engine) = &self.filter {
++                        let (verdict, filter_name) = engine.apply(
++                            &prefix,
++                            peer_header.peer_as,
++                            peer_addr,
++                            &update.attributes,
++                        );
++                        if verdict == FilterVerdict::Deny {
++                            debug!(%speaker, %peer_addr, %prefix,
++                                filter = filter_name.unwrap_or("?"),
++                                "route denied by filter");
++                            counter!("bgp_routes_filtered_total", "speaker" => speaker.to_string()).increment(1);
++                            continue;
++                        }
++                    }
++
+                     counter!("bgp_routes_announced_total", "speaker" => speaker.to_string()).increment(1);
+                     let entry = RibEntry {
+                         prefix:      prefix.clone(),
+@@ -136,6 +190,8 @@ impl RibManager {
+                         peer_addr,
+                         peer_as:     peer_header.peer_as,
+                         is_best:     true,
++                        llgr_state:  rbmp_core::bgp::types::LlgrState::Normal,
++                        stale_at:    None,
+                     };
+                     rib.insert(rib_type, entry);
+                     // Recompute best-path when Add-Path may produce multiple paths
+diff --git a/crates/rbmp-rib/src/session.rs b/crates/rbmp-rib/src/session.rs
+index abd1101..6a5d5e6 100644
+--- a/crates/rbmp-rib/src/session.rs
++++ b/crates/rbmp-rib/src/session.rs
+@@ -33,6 +33,10 @@ pub struct PeerSession {
+     /// AFI/SAFIs for which Add-Path is active (RFC 7911)
+     /// Populated from the Add-Path capability in PeerUp OPEN.
+     pub add_path_families: Vec<(AfiSafi, u8)>,
++    /// LLGR stale time negotiated in OPEN (RFC 9494); 0 = LLGR not active
++    pub llgr_stale_secs:   u32,
++    /// True when LLGR capability was present in peer OPEN
++    pub llgr_active:       bool,
+ }
+ 
+ impl PeerSession {
+@@ -50,6 +54,8 @@ impl PeerSession {
+             route_counts:      HashMap::new(),
+             flap_count:        0,
+             add_path_families: Vec::new(),
++            llgr_stale_secs:   0,
++            llgr_active:       false,
+         }
+     }
+ 
+@@ -63,6 +69,22 @@ impl PeerSession {
+         self.add_path_families = caps.iter().find_map(|c| {
+             if let BgpCapability::AddPath(entries) = c { Some(entries.clone()) } else { None }
+         }).unwrap_or_default();
++        // Detect LLGR capability (RFC 9494)
++        // Each entry: AFI(2)+SAFI(1)+flags(1)+stale_time(3) = 7 bytes
++        // We take the maximum stale_time across all advertised AFI/SAFIs
++        self.llgr_stale_secs = caps.iter().find_map(|c| {
++            if let BgpCapability::LongLivedGracefulRestart { entries } = c {
++                let mut max_secs = 0u32;
++                let mut i = 0;
++                while i + 7 <= entries.len() {
++                    let t = u32::from_be_bytes([0, entries[i+4], entries[i+5], entries[i+6]]);
++                    if t > max_secs { max_secs = t; }
++                    i += 7;
++                }
++                Some(max_secs)
++            } else { None }
++        }).unwrap_or(0);
++        self.llgr_active = self.llgr_stale_secs > 0;
+         self.capabilities = caps;
+     }
+ 
+diff --git a/crates/rbmp-rib/src/table.rs b/crates/rbmp-rib/src/table.rs
+index 53e305b..a92ce16 100644
+--- a/crates/rbmp-rib/src/table.rs
++++ b/crates/rbmp-rib/src/table.rs
+@@ -2,7 +2,7 @@ use std::collections::HashMap;
+ use std::net::IpAddr;
+ use chrono::{DateTime, Utc};
+ use serde::{Deserialize, Serialize};
+-use rbmp_core::bgp::types::{PathAttributes, Prefix};
++use rbmp_core::bgp::types::{PathAttributes, Prefix, LlgrState};
+ use rbmp_core::bmp::types::RibType;
+ 
+ /// A route entry in the RIB
+@@ -17,6 +17,10 @@ pub struct RibEntry {
+     pub peer_as:     u32,
+     /// True when this is the best-path among multiple paths for the same prefix
+     pub is_best:     bool,
++    /// LLGR stale state for this route (RFC 9494)
++    pub llgr_state:  LlgrState,
++    /// Wall-clock time at which this route was marked stale (set by LLGR timer)
++    pub stale_at:    Option<DateTime<Utc>>,
+ }
+ 
+ /// Per-peer, per-RIB-type route table.
+@@ -116,4 +120,38 @@ impl RibTable {
+     pub fn rib_counts(&self) -> HashMap<RibType, usize> {
+         self.tables.iter().map(|(k, v)| (*k, v.len())).collect()
+     }
++
++    /// Mark every route in this table as LLGR-stale (called on peer Down when LLGR active).
++    /// Records the stale timestamp so callers can later expire entries.
++    pub fn mark_stale_all(&mut self, at: DateTime<Utc>) {
++        for table in self.tables.values_mut() {
++            for entry in table.values_mut() {
++                if entry.llgr_state == LlgrState::Normal {
++                    entry.llgr_state = LlgrState::StaleMarked;
++                    entry.stale_at   = Some(at);
++                }
++            }
++        }
++    }
++
++    /// Remove all entries whose stale timer has expired (stale_at + stale_secs <= now).
++    /// Returns the number of routes deleted.
++    pub fn drain_deleted_stale(&mut self, now: DateTime<Utc>, stale_secs: u32) -> usize {
++        let mut removed = 0usize;
++        for table in self.tables.values_mut() {
++            table.retain(|_, entry| {
++                if entry.llgr_state == LlgrState::StaleMarked {
++                    if let Some(stale_at) = entry.stale_at {
++                        if (now - stale_at).num_seconds() >= stale_secs as i64 {
++                            entry.llgr_state = LlgrState::Deleted;
++                            removed += 1;
++                            return false;
++                        }
++                    }
++                }
++                true
++            });
++        }
++        removed
++    }
+ }
+diff --git a/crates/rbmp-server/Cargo.toml b/crates/rbmp-server/Cargo.toml
+index d6bed49..3a78515 100644
+--- a/crates/rbmp-server/Cargo.toml
++++ b/crates/rbmp-server/Cargo.toml
+@@ -11,11 +11,16 @@ rust-version.workspace = true
+ name = "rustybmp"
+ path = "src/main.rs"
+ 
++[[bin]]
++name = "rbmp-collector"
++path = "src/bin/collector.rs"
++
+ [dependencies]
+ rbmp-core        = { workspace = true }
+ rbmp-rib         = { workspace = true }
+ rbmp-store       = { workspace = true }
+ rbmp-enrichment  = { workspace = true }
++rbmp-kafka       = { workspace = true }
+ 
+ # async
+ tokio       = { workspace = true }
+diff --git a/crates/rbmp-server/src/config.rs b/crates/rbmp-server/src/config.rs
+index 77fad00..6d96384 100644
+--- a/crates/rbmp-server/src/config.rs
++++ b/crates/rbmp-server/src/config.rs
+@@ -21,6 +21,12 @@ pub struct Config {
+     pub rpki:     RpkiConfig,
+     #[serde(default)]
+     pub registry: SpeakerRegistry,
++    #[serde(default)]
++    pub dns:      DnsConfig,
++    #[serde(default)]
++    pub proxy:    ProxyConfig,
++    #[serde(default)]
++    pub kafka:    KafkaConfig,
+ }
+ 
+ impl Config {
+@@ -150,9 +156,80 @@ pub struct RpkiConfig {
+ }
+ 
+ fn default_rtr_addr() -> String { "127.0.0.1:3323".into() }
++fn default_dns_ttl() -> u64 { 300 }
++fn default_proxy_addr() -> String { "0.0.0.0:5001".into() }
++fn default_proxy_upstream() -> String { "127.0.0.1:5002".into() }
+ 
+ impl Default for RpkiConfig {
+     fn default() -> Self {
+         Self { enabled: false, rtr_addr: default_rtr_addr() }
+     }
+ }
++
++/// DNS PTR-lookup enrichment configuration (RV3-4)
++#[derive(Debug, Clone, Deserialize, Serialize)]
++pub struct DnsConfig {
++    /// Perform PTR lookups for BMP speaker addresses on connect
++    #[serde(default)]
++    pub enabled:  bool,
++    /// TTL in seconds for cached PTR results
++    #[serde(default = "default_dns_ttl")]
++    pub ttl_secs: u64,
++}
++
++impl Default for DnsConfig {
++    fn default() -> Self {
++        Self { enabled: false, ttl_secs: default_dns_ttl() }
++    }
++}
++
++/// BMP proxy/intercept configuration (RV3-7)
++#[derive(Debug, Clone, Deserialize, Serialize)]
++pub struct ProxyConfig {
++    /// Enable the BMP proxy listener
++    #[serde(default)]
++    pub enabled:      bool,
++    /// Address for the proxy to listen on (routers connect here)
++    #[serde(default = "default_proxy_addr")]
++    pub listen_addr:  String,
++    /// Upstream BMP collector to forward all raw bytes to
++    #[serde(default = "default_proxy_upstream")]
++    pub upstream_addr: String,
++}
++
++impl Default for ProxyConfig {
++    fn default() -> Self {
++        Self {
++            enabled:       false,
++            listen_addr:   default_proxy_addr(),
++            upstream_addr: default_proxy_upstream(),
++        }
++    }
++}
++
++fn default_kafka_brokers() -> String { "localhost:9092".into() }
++fn default_kafka_prefix()  -> String { "rustybmp".into() }
++
++/// Kafka output configuration (RV3-5)
++#[derive(Debug, Clone, Deserialize, Serialize)]
++pub struct KafkaConfig {
++    /// Enable Kafka output sink
++    #[serde(default)]
++    pub enabled:      bool,
++    /// Comma-separated Kafka broker list
++    #[serde(default = "default_kafka_brokers")]
++    pub brokers:      String,
++    /// Topic prefix (e.g. "rustybmp" → "rustybmp.peer", "rustybmp.unicast_prefix")
++    #[serde(default = "default_kafka_prefix")]
++    pub topic_prefix: String,
++}
++
++impl Default for KafkaConfig {
++    fn default() -> Self {
++        Self {
++            enabled:      false,
++            brokers:      default_kafka_brokers(),
++            topic_prefix: default_kafka_prefix(),
++        }
++    }
++}
+diff --git a/crates/rbmp-server/src/main.rs b/crates/rbmp-server/src/main.rs
+index 7c94240..267a81e 100644
+--- a/crates/rbmp-server/src/main.rs
++++ b/crates/rbmp-server/src/main.rs
+@@ -3,6 +3,8 @@ mod receiver;
+ mod archive;
+ mod governor;
+ mod api;
++mod dns;
++mod proxy;
+ 
+ use std::sync::Arc;
+ use std::path::Path;
+@@ -16,6 +18,10 @@ use rbmp_store::{RouteStore, writer::run_store_writer};
+ use rbmp_store::query::QueryEngine;
+ use rbmp_enrichment::{VrpCache, EnrichmentEngine};
+ use rbmp_enrichment::rtr::RtrClient;
++use rbmp_kafka::{KafkaProducer, run_kafka_sink};
++use rbmp_core::collector_protocol::{COLLECTOR_PORT, read_frame};
++use rbmp_core::bmp::parser::{parse_bmp_message, DEFAULT_MAX_FRAME};
++use rbmp_core::bmp::BmpMessage;
+ use metrics_exporter_prometheus::PrometheusHandle;
+ use api::{AppState, build_router};
+ 
+@@ -116,6 +122,63 @@ async fn main() -> Result<()> {
+         });
+     }
+ 
++    // ── Kafka output sink ───────────────────────────────────────────────────
++    if cfg.kafka.enabled {
++        match KafkaProducer::new(&cfg.kafka.brokers, &cfg.kafka.topic_prefix) {
++            Ok(producer) => {
++                info!(brokers = %cfg.kafka.brokers, prefix = %cfg.kafka.topic_prefix,
++                    "Kafka output sink enabled");
++                let kafka_rx   = event_tx.subscribe();
++                let cancel_k   = cancel.clone();
++                tokio::spawn(async move {
++                    run_kafka_sink(producer, kafka_rx, cancel_k).await;
++                });
++            }
++            Err(e) => {
++                error!(error = %e, "Failed to create Kafka producer — Kafka output disabled");
++            }
++        }
++    }
++
++    // ── DNS PTR cache ─────────────────────────────────────────────────────────
++    let dns_cache = if cfg.dns.enabled {
++        info!(ttl_secs = cfg.dns.ttl_secs, "DNS PTR enrichment enabled");
++        let cache = dns::DnsCache::new(cfg.dns.ttl_secs);
++        // Spawn background eviction task (every 10 minutes)
++        {
++            let cache2   = cache.clone();
++            let cancel_d = cancel.clone();
++            tokio::spawn(async move {
++                let mut interval = tokio::time::interval(std::time::Duration::from_secs(600));
++                loop {
++                    tokio::select! {
++                        _ = cancel_d.cancelled() => break,
++                        _ = interval.tick() => cache2.evict_expired(),
++                    }
++                }
++            });
++        }
++        Some(cache)
++    } else {
++        None
++    };
++
++    // ── BMP Proxy task ────────────────────────────────────────────────────────
++    if cfg.proxy.enabled {
++        let proxy_cfg = proxy::ProxyConfig {
++            listen_addr:     cfg.proxy.listen_addr.clone(),
++            upstream_addr:   cfg.proxy.upstream_addr.clone(),
++            max_frame_bytes: cfg.bmp.max_frame_bytes,
++        };
++        let cancel_p = cancel.clone();
++        let msg_tx_p = msg_tx.clone();
++        tokio::spawn(async move {
++            if let Err(e) = proxy::run_bmp_proxy(proxy_cfg, cancel_p, msg_tx_p).await {
++                error!(error = %e, "BMP proxy exited with error");
++            }
++        });
++    }
++
+     // ── BMP Receiver task ─────────────────────────────────────────────────────
+     {
+         let cancel2     = cancel.clone();
+@@ -124,7 +187,7 @@ async fn main() -> Result<()> {
+         let archive2    = Arc::clone(&archive);
+         let msg_tx2     = msg_tx.clone();
+         tokio::spawn(async move {
+-            if let Err(e) = receiver::run_bmp_receiver(bmp_cfg, cancel2, msg_tx2, shed2, archive2).await {
++            if let Err(e) = receiver::run_bmp_receiver(bmp_cfg, cancel2, msg_tx2, shed2, archive2, dns_cache).await {
+                 error!(error = %e, "BMP receiver exited with error");
+             }
+         });
+@@ -166,6 +229,36 @@ async fn main() -> Result<()> {
+         });
+     }
+ 
++    // ── Core collector listener (RV3-10) ──────────────────────────────────────
++    {
++        let collector_addr: std::net::SocketAddr =
++            format!("0.0.0.0:{COLLECTOR_PORT}").parse()?;
++        let coll_listener = tokio::net::TcpListener::bind(collector_addr).await?;
++        info!(addr = %collector_addr, "Collector listener ready (RV3-10)");
++
++        let msg_tx_c = msg_tx.clone();
++        let cancel_c = cancel.clone();
++        tokio::spawn(async move {
++            loop {
++                tokio::select! {
++                    _ = cancel_c.cancelled() => break,
++                    result = coll_listener.accept() => {
++                        match result {
++                            Ok((stream, peer)) => {
++                                let tx2 = msg_tx_c.clone();
++                                let cancel2 = cancel_c.clone();
++                                tokio::spawn(async move {
++                                    handle_collector_conn(stream, peer, tx2, cancel2).await;
++                                });
++                            }
++                            Err(e) => error!(error = %e, "Collector accept error"),
++                        }
++                    }
++                }
++            }
++        });
++    }
++
+     // ── HTTP Server ───────────────────────────────────────────────────────────
+     let queries = Arc::new(QueryEngine::new(Arc::clone(&store)));
+     let registry = Arc::new(cfg.registry.clone());
+@@ -189,3 +282,56 @@ async fn main() -> Result<()> {
+     info!("rustybmp shutdown complete");
+     Ok(())
+ }
++
++// ─── Core: collector connection handler (RV3-10) ─────────────────────────────
++
++/// Accept `CollectorEnvelope` frames from an `rbmp-collector` edge process,
++/// re-parse each BMP PDU, and feed it into the Core's BMP message channel.
++async fn handle_collector_conn(
++    stream:  tokio::net::TcpStream,
++    peer:    std::net::SocketAddr,
++    msg_tx:  tokio::sync::mpsc::Sender<BmpMessage>,
++    cancel:  CancellationToken,
++) {
++    info!(collector = %peer, "rbmp-collector connected");
++    let mut reader = tokio::io::BufReader::new(stream);
++    loop {
++        let envelope = tokio::select! {
++            _ = cancel.cancelled() => break,
++            result = read_frame(&mut reader) => match result {
++                Ok(Some(env)) => env,
++                Ok(None) => {
++                    info!(collector = %peer, "rbmp-collector disconnected");
++                    break;
++                }
++                Err(e) => {
++                    error!(collector = %peer, error = %e, "collector frame error");
++                    break;
++                }
++            }
++        };
++
++        let payload = match parse_bmp_message(
++            &envelope.raw_bmp,
++            envelope.speaker_addr,
++            DEFAULT_MAX_FRAME,
++        ) {
++            Ok(p)  => p,
++            Err(e) => {
++                tracing::warn!(collector = %peer, error = %e, "collector BMP parse error");
++                continue;
++            }
++        };
++
++        let msg = BmpMessage {
++            id:           uuid::Uuid::new_v4(),
++            received_at:  envelope.received_at,
++            speaker_addr: envelope.speaker_addr,
++            payload,
++        };
++
++        if msg_tx.send(msg).await.is_err() {
++            break; // receiver dropped — shutdown
++        }
++    }
++}
+diff --git a/crates/rbmp-server/src/receiver.rs b/crates/rbmp-server/src/receiver.rs
+index 3ba82c0..7d4cc90 100644
+--- a/crates/rbmp-server/src/receiver.rs
++++ b/crates/rbmp-server/src/receiver.rs
+@@ -13,6 +13,7 @@ use rbmp_core::bmp::parser::parse_bmp_message;
+ use rbmp_core::bmp::types::{BmpMessage, BmpPayload};
+ use crate::archive::BmpArchive;
+ use crate::config::BmpConfig;
++use crate::dns::DnsCache;
+ use crate::governor::ShedSignal;
+ 
+ const BMP_HEADER_LEN: usize = 6;
+@@ -24,6 +25,7 @@ pub async fn run_bmp_receiver(
+     tx:      mpsc::Sender<BmpMessage>,
+     shed:    ShedSignal,
+     archive: Arc<BmpArchive>,
++    dns:     Option<DnsCache>,
+ ) -> Result<()> {
+     let listener = TcpListener::bind(&cfg.listen_addr).await?;
+     info!(addr = %cfg.listen_addr, "BMP receiver listening");
+@@ -42,9 +44,10 @@ pub async fn run_bmp_receiver(
+                         let cancel2  = cancel.clone();
+                         let shed2    = shed.clone();
+                         let archive2 = Arc::clone(&archive);
++                        let dns2     = dns.clone();
+                         tokio::spawn(async move {
+                             if let Err(e) = handle_connection(
+-                                stream, peer, cfg2, cancel2, tx2, shed2, archive2,
++                                stream, peer, cfg2, cancel2, tx2, shed2, archive2, dns2,
+                             ).await {
+                                 warn!(%peer, error = %e, "BMP connection error");
+                             }
+@@ -60,7 +63,7 @@ pub async fn run_bmp_receiver(
+     Ok(())
+ }
+ 
+-#[instrument(skip(stream, cfg, cancel, tx, shed, archive), fields(%peer))]
++#[instrument(skip(stream, cfg, cancel, tx, shed, archive, dns), fields(%peer))]
+ async fn handle_connection(
+     mut stream: TcpStream,
+     peer:       SocketAddr,
+@@ -69,9 +72,20 @@ async fn handle_connection(
+     tx:         mpsc::Sender<BmpMessage>,
+     shed:       ShedSignal,
+     archive:    Arc<BmpArchive>,
++    dns:        Option<DnsCache>,
+ ) -> Result<()> {
+-    info!("BMP speaker connected");
+     let speaker_addr = peer.ip();
++
++    // DNS PTR enrichment: resolve hostname for the connecting speaker
++    let hostname = if let Some(ref cache) = dns {
++        cache.lookup(speaker_addr).await
++    } else {
++        None
++    };
++    match &hostname {
++        Some(name) => info!(hostname = %name, "BMP speaker connected"),
++        None       => info!("BMP speaker connected"),
++    }
+     let mut buf = BytesMut::with_capacity(65536);
+ 
+     loop {
+diff --git a/crates/rbmp-store/src/schema.rs b/crates/rbmp-store/src/schema.rs
+index 4115f6d..85cc39d 100644
+--- a/crates/rbmp-store/src/schema.rs
++++ b/crates/rbmp-store/src/schema.rs
+@@ -23,7 +23,8 @@ CREATE TABLE IF NOT EXISTS route_events (
+     ext_communities VARCHAR,
+     large_communities VARCHAR,
+     originator_id   VARCHAR,
+-    atomic_aggregate BOOLEAN DEFAULT false
++    atomic_aggregate BOOLEAN DEFAULT false,
++    collector_id    VARCHAR               -- NULL for direct BMP connections (RV3-10)
+ );
+ 
+ -- BGP peer session events
+@@ -37,7 +38,8 @@ CREATE TABLE IF NOT EXISTS peer_events (
+     local_as        UINTEGER,
+     hold_time       USMALLINT,
+     capabilities    VARCHAR,               -- JSON array
+-    reason          VARCHAR
++    reason          VARCHAR,
++    collector_id    VARCHAR
+ );
+ 
+ -- BMP speaker sessions
+@@ -48,7 +50,8 @@ CREATE TABLE IF NOT EXISTS speaker_events (
+     event_type      VARCHAR     NOT NULL,  -- 'speaker_up' | 'speaker_down'
+     sys_name        VARCHAR,
+     sys_descr       VARCHAR,
+-    reason          VARCHAR
++    reason          VARCHAR,
++    collector_id    VARCHAR
+ );
+ 
+ -- Statistics snapshots (RFC 7854 + RFC 9972)
+@@ -91,4 +94,6 @@ CREATE INDEX IF NOT EXISTS idx_route_events_time       ON route_events (occurred
+ CREATE INDEX IF NOT EXISTS idx_route_events_as_path    ON route_events (as_path);
+ CREATE INDEX IF NOT EXISTS idx_peer_events_peer        ON peer_events (peer_addr);
+ CREATE INDEX IF NOT EXISTS idx_peer_events_time        ON peer_events (occurred_at);
++CREATE INDEX IF NOT EXISTS idx_route_events_collector  ON route_events (collector_id);
++CREATE INDEX IF NOT EXISTS idx_peer_events_collector   ON peer_events (collector_id);
+ "#;
+diff --git a/crates/rbmp-store/src/writer.rs b/crates/rbmp-store/src/writer.rs
+index a2c9742..82d3864 100644
+--- a/crates/rbmp-store/src/writer.rs
++++ b/crates/rbmp-store/src/writer.rs
+@@ -255,6 +255,22 @@ fn evpn_route_fields(route: &EvpnRoute) -> (
+             Some(hex_encode(rd)), Some(*ethernet_tag),
+             None, Some(prefix.to_string()), Some(*prefix_len), Some(*mpls_label), Some(hex_encode(esi)),
+         ),
++        EvpnRoute::SelectiveMulticastEthernetTag { rd, ethernet_tag, multicast_source, originating_router_ip, .. }
++        | EvpnRoute::IgmpJoinSynch { rd, ethernet_tag, multicast_source, originating_router_ip, .. }
++        | EvpnRoute::IgmpLeaveSynch { rd, ethernet_tag, multicast_source, originating_router_ip, .. }
++        | EvpnRoute::SPmsi { rd, ethernet_tag, multicast_source, originating_router_ip, .. } => (
++            Some(hex_encode(rd)), Some(*ethernet_tag),
++            Some(multicast_source.to_string()),
++            Some(originating_router_ip.to_string()),
++            None, None, None,
++        ),
++        EvpnRoute::PerRegionIPmsi { rd, ethernet_tag, originating_router_ip } => (
++            Some(hex_encode(rd)), Some(*ethernet_tag),
++            None, Some(originating_router_ip.to_string()), None, None, None,
++        ),
++        EvpnRoute::LeafAD { path_id, .. } => (
++            None, None, None, None, None, Some(*path_id), None,
++        ),
+         EvpnRoute::Unknown { .. } => (None, None, None, None, None, None, None),
+     }
+ }
+diff --git a/results_and_decisions.md b/results_and_decisions.md
+index 1df75a4..57d8f2d 100644
+--- a/results_and_decisions.md
++++ b/results_and_decisions.md
+@@ -80,7 +80,102 @@ After:  RibManager::event_sender() returns a clone of the real sender.
+ 
+ ---
+ 
+-## Known Gaps / Deferred to RV2
++## Known Gaps / Deferred to RV2 (resolved in RV2/RV3)
++
++- Add-Path path_id parsing from NLRI → ✅ Done RV2
++- LLGR stale tracking → ✅ Done RV3 (Bundle B)
++- BGP-LS full decode → ✅ Done RV3 (Bundle A)
++- Route Target ExtComm → ✅ Done RV2
++- EVPN events table writer → ✅ Done RV2
++- rbmppy `peering.py` stub → ✅ Done RV2 (PeeringDB + RPKI wrappers)
++
++---
++
++## Session Log — 2026-06-19 Sprint RV2
++
++**Completed**: Add-Path NLRI parsing, EVPN withdraw, ExtComm/RT decode, BGP-LS NLRI scaffolding, RPKI RTR client scaffold, analytics rewrite (ZScore, HijackDetector, RouteLeakDetector, FlapScorer). 38 tests pass.
++
++---
++
++## Session Log — 2026-06-19 Sprint RV3 (Bundles A-G)
++
++### Bundles Completed
++
++| Bundle | Epic | Outcome |
++|--------|------|---------|
++| A | RV3-1,2 | SR Policy SAFI73 (types A-K), EVPN types 6-11, BGP-LS full TLVs, RTC SAFI132 |
++| B | RV3-8,9 | YAML filter DSL, LLGR state machine (Normal/StaleMarked/Deleted) |
++| C | RV3-4,7 | DNS PTR cache (TTL-bounded, OS resolver), BMP proxy (tee + upstream forward) |
++| D | RV3-5   | Kafka output crate (rdkafka FutureProducer, lz4, typed topics) |
++| E | RV3-6   | MRT crate (RFC 6396 reader + writer, BGP4MP + TABLE_DUMP_V2, 8 tests) |
++| F | RV3-3   | Python: rpki.py (RtrVrpCache, RFC 6811), internet.py (IRR/RDAP/BGP.Tools), detectors.py (4 detectors + pipeline) |
++| G | RV3-10  | Distributed: CollectorEnvelope (MessagePack), rbmp-collector binary, Core TCP listener :5001, schema collector_id |
++
++**Final test count**: 49 Rust tests, 0 failures.
++
++#### Decisions Made (RV3)
++
++| # | Decision | Rationale |
++|---|----------|-----------|
++| D9 | `body_len` in MRT writer must include AFI u16 (was missing +2) | Root cause of all reader test failures — MRT header declared 2 fewer bytes than were written, causing parse under-reads. Fixed in `write_bgp4mp_message` and `write_bgp4mp_state_change`. |
++| D10 | Collector protocol uses `rmp-serde` (MessagePack) over raw TCP with 4-byte BE length prefix | Compact binary, self-describing, zero-copy decode with `rmp_serde::from_slice`. Simpler than Protobuf for this use case. Max frame 8 MiB. |
++| D11 | `rbmp-collector` uses `try_send()` to a bounded `mpsc::channel` as ring buffer | Non-blocking drop on overflow is correct for an edge collector — it is better to lose PDUs than to back-pressure the BMP TCP session and cause router disconnect. |
++| D12 | `handle_collector_conn` re-parses raw BMP bytes on the Core side | Core always re-parses; collector only frames+forwards. This keeps the collector binary minimal and avoids sending structs over the wire. |
++| D13 | `detectors.py` extracts `origin_as` by scanning the last integer token in `RouteEvent.as_path` | `RouteEvent` has `as_path: Optional[str]` (space-separated), not a structured list. `_origin_as()` and `_as_path_list()` helpers added. |
++| D14 | `RtrVrpCache` uses sorted in-process list; validation via linear scan | VRP tables are ~400K entries; linear scan is O(n) but fast enough for alert pipelines. Production upgrade: use an interval tree if needed. |
++
++---
++
++## Files Changed — RV2
++
++### Modified files
++- `crates/rbmp-core/src/bgp/types.rs` — Add-Path struct, ExtComm types, BGP-LS NLRI stubs
++- `crates/rbmp-core/src/bgp/update.rs` — path_id parsing from NLRI
++- `crates/rbmp-core/src/bgp/attributes.rs` — ExtComm full decode, RT community
++- `crates/rbmp-core/src/bgp/bgpls.rs` — NLRI type scaffolding
++- `crates/rbmp-enrichment/src/rtr.rs` — RTR client scaffold
++- `bmppy/rbmppy/analytics.py` — ZScoreMonitor, HijackDetector, RouteLeakDetector, FlapScorer
++
++---
++
++## Files Changed — RV3
++
++### New crates
++- `crates/rbmp-kafka/` — Kafka output (producer, sink, topics, error)
++- `crates/rbmp-mrt/` — MRT import/export (types, reader, writer, error)
++
++### New Rust files
++- `crates/rbmp-core/src/bgp/srpolicy.rs` — SR Policy NLRI SAFI 73
++- `crates/rbmp-core/src/collector_protocol.rs` — MessagePack framing protocol
++- `crates/rbmp-server/src/dns.rs` — DNS PTR cache
++- `crates/rbmp-server/src/proxy.rs` — BMP proxy
++- `crates/rbmp-server/src/bin/collector.rs` — `rbmp-collector` edge binary
++
++### New Python files
++- `bmppy/rbmppy/rpki.py` — RtrVrpCache, RFC 6811 validation, poll_rtr_cache()
++- `bmppy/rbmppy/internet.py` — IrrClient, RdapClient, BgpToolsClient, resolve_origin()
++- `bmppy/rbmppy/detectors.py` — OriginChangeDetector, RouteLeakDetector, MEDOscillationDetector, BGPHijackDetector, DetectorPipeline
++
++### Modified Rust files
++- `Cargo.toml` — rdkafka, rmp-serde workspace deps; rbmp-kafka, rbmp-mrt members
++- `crates/rbmp-core/Cargo.toml` — added rmp-serde, tokio
++- `crates/rbmp-core/src/lib.rs` — pub mod collector_protocol
++- `crates/rbmp-core/src/bgp/evpn.rs` — EVPN types 6-11
++- `crates/rbmp-core/src/bgp/bgpls.rs` — full link/node/prefix attribute TLVs
++- `crates/rbmp-core/src/bgp/types.rs` — SR Policy Safi, RTC, LLGR state
++- `crates/rbmp-core/src/bgp/attributes.rs` — wire type 29 BGP-LS, SR Policy dispatch
++- `crates/rbmp-rib/src/manager.rs` — filter engine, LLGR handling
++- `crates/rbmp-rib/src/session.rs` — LLGR state machine
++- `crates/rbmp-store/src/schema.rs` — collector_id in route_events/peer_events/speaker_events
++- `crates/rbmp-server/Cargo.toml` — rbmp-kafka dep, rbmp-collector [[bin]]
++- `crates/rbmp-server/src/config.rs` — KafkaConfig, DnsConfig, ProxyConfig
++- `crates/rbmp-server/src/main.rs` — Kafka sink, DNS, proxy, collector listener
++- `crates/rbmp-server/src/receiver.rs` — DNS PTR lookup on connect
++- `bmppy/rbmppy/__init__.py` — export rpki/internet/detectors symbols
++
++---
++
++## Known Gaps / Deferred to RV4
+ 
+ - Add-Path path_id parsing from NLRI (NLRI decoder needs changes)
+ - LLGR stale tracking (capability parsed, state machine not yet)

@@ -85,8 +85,8 @@ fn parse_one_capability(code: u8, data: &[u8]) -> Result<BgpCapability> {
         }
         // Enhanced Route Refresh (RFC 7313)
         70 => Ok(BgpCapability::EnhancedRouteRefresh),
-        // Long-Lived Graceful Restart (draft-uttaro-idr-bgp-persistence)
-        71 => Ok(BgpCapability::LongLivedGracefulRestart),
+        // Long-Lived Graceful Restart (RFC 9494)
+        71 => Ok(BgpCapability::LongLivedGracefulRestart { entries: data.to_vec() }),
         // BGP Role (RFC 9234): role byte 0=Provider, 1=RS, 2=RS-Client, 3=Customer, 4=Peer
         9 if !data.is_empty() => Ok(BgpCapability::BgpRole(data[0])),
         // FQDN (draft-walton-bgp-hostname-capability)

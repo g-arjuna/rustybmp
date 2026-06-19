@@ -255,6 +255,22 @@ fn evpn_route_fields(route: &EvpnRoute) -> (
             Some(hex_encode(rd)), Some(*ethernet_tag),
             None, Some(prefix.to_string()), Some(*prefix_len), Some(*mpls_label), Some(hex_encode(esi)),
         ),
+        EvpnRoute::SelectiveMulticastEthernetTag { rd, ethernet_tag, multicast_source, originating_router_ip, .. }
+        | EvpnRoute::IgmpJoinSynch { rd, ethernet_tag, multicast_source, originating_router_ip, .. }
+        | EvpnRoute::IgmpLeaveSynch { rd, ethernet_tag, multicast_source, originating_router_ip, .. }
+        | EvpnRoute::SPmsi { rd, ethernet_tag, multicast_source, originating_router_ip, .. } => (
+            Some(hex_encode(rd)), Some(*ethernet_tag),
+            Some(multicast_source.to_string()),
+            Some(originating_router_ip.to_string()),
+            None, None, None,
+        ),
+        EvpnRoute::PerRegionIPmsi { rd, ethernet_tag, originating_router_ip } => (
+            Some(hex_encode(rd)), Some(*ethernet_tag),
+            None, Some(originating_router_ip.to_string()), None, None, None,
+        ),
+        EvpnRoute::LeafAD { path_id, .. } => (
+            None, None, None, None, None, Some(*path_id), None,
+        ),
         EvpnRoute::Unknown { .. } => (None, None, None, None, None, None, None),
     }
 }

@@ -6,7 +6,8 @@ use super::nlri::{decode_nlri, decode_labeled_nlri, decode_vpn_nlri, decode_next
 use super::evpn::decode_evpn_nlri;
 use super::flowspec::{decode_flowspec_nlri, FlowspecNlri};
 use super::srv6::parse_prefix_sid;
-use super::bgpls::{decode_bgpls_reach, decode_bgpls_unreach};
+use super::bgpls::{decode_bgpls_reach, decode_bgpls_unreach, parse_bgpls_attribute};
+use super::srpolicy::{decode_srpolicy_nlri, decode_rtc_nlri, SrPolicyNlri, RtcNlri};
 
 // ─── Attribute flag bits ──────────────────────────────────────────────────────
 const FLAG_OPTIONAL:   u8 = 0x80;
@@ -100,19 +101,26 @@ pub fn parse_path_attributes(mut buf: impl Buf) -> Result<PathAttributes> {
             }
             // Type 14: MP_REACH_NLRI (RFC 4760)
             14 if attr_len >= 4 => {
-                let (mp, evpn_reach, flowspec_reach, bgpls_reach) = parse_mp_reach(attr_data.as_ref())?;
-                attrs.mp_reach       = Some(mp);
-                attrs.evpn_reach     = evpn_reach;
-                attrs.flowspec_reach = flowspec_reach;
-                attrs.bgpls_reach    = bgpls_reach;
+                let (mp, evpn_reach, flowspec_reach, bgpls_reach, sr_nlris, rtc_nlris)
+                    = parse_mp_reach(attr_data.as_ref())?;
+                attrs.mp_reach          = Some(mp);
+                attrs.evpn_reach        = evpn_reach;
+                attrs.flowspec_reach    = flowspec_reach;
+                attrs.bgpls_reach       = bgpls_reach;
+                attrs.sr_policy_nlris   = sr_nlris;
+                attrs.rtc_nlris         = rtc_nlris;
             }
             // Type 15: MP_UNREACH_NLRI (RFC 4760)
             15 if attr_len >= 3 => {
-                let (mp, evpn_unreach, flowspec_unreach, bgpls_unreach) = parse_mp_unreach(attr_data.as_ref())?;
-                attrs.mp_unreach       = Some(mp);
-                attrs.evpn_unreach     = evpn_unreach;
-                attrs.flowspec_unreach = flowspec_unreach;
-                attrs.bgpls_unreach    = bgpls_unreach;
+                let (mp, evpn_unreach, flowspec_unreach, bgpls_unreach, sr_wd, _rtc_wd)
+                    = parse_mp_unreach(attr_data.as_ref())?;
+                attrs.mp_unreach        = Some(mp);
+                attrs.evpn_unreach      = evpn_unreach;
+                attrs.flowspec_unreach  = flowspec_unreach;
+                attrs.bgpls_unreach     = bgpls_unreach;
+                if let Some(nlris) = sr_wd {
+                    attrs.sr_policy_nlris = nlris;
+                }
             }
             // Type 16: EXTENDED COMMUNITIES (RFC 4360)
             16 => {
@@ -151,6 +159,10 @@ pub fn parse_path_attributes(mut buf: impl Buf) -> Result<PathAttributes> {
             // Type 35: ONLY_TO_CUSTOMER (RFC 9234) — 4-byte AS number
             35 if attr_len == 4 => {
                 attrs.only_to_customer = Some(u32::from_be_bytes(attr_buf[..4].try_into().unwrap()));
+            }
+            // Type 29: BGP-LS attribute (RFC 7752 §3.3)
+            29 => {
+                attrs.bgpls_attr = Some(parse_bgpls_attribute(attr_data.as_ref()));
             }
             // Type 40: BGP_PREFIX_SID (RFC 8669)
             40 => {
@@ -204,7 +216,7 @@ pub fn parse_as_path(mut buf: &[u8], four_byte: bool) -> Result<AsPath> {
     Ok(AsPath(segments))
 }
 
-fn parse_mp_reach(buf: &[u8]) -> Result<(MpReachNlri, Option<EvpnReachNlri>, Option<Vec<FlowspecNlri>>, Option<BgpLsReachNlri>)> {
+fn parse_mp_reach(buf: &[u8]) -> Result<(MpReachNlri, Option<EvpnReachNlri>, Option<Vec<FlowspecNlri>>, Option<BgpLsReachNlri>, Vec<SrPolicyNlri>, Vec<RtcNlri>)> {
     if buf.len() < 4 {
         return Err(Error::UnexpectedEof { needed: 4, have: buf.len() });
     }
@@ -235,6 +247,17 @@ fn parse_mp_reach(buf: &[u8]) -> Result<(MpReachNlri, Option<EvpnReachNlri>, Opt
             let ls = decode_bgpls_reach(next_hop, &remaining).unwrap_or_else(|_| BgpLsReachNlri { next_hop, nlris: vec![] });
             (Vec::new(), None, None, Some(ls))
         }
+        Safi::SrPolicy => {
+            let afi_is_ipv6 = matches!(afi_safi.afi, Afi::Ipv6);
+            let nlris = decode_srpolicy_nlri(&remaining, afi_is_ipv6).unwrap_or_default();
+            return Ok((MpReachNlri { afi_safi, next_hops, prefixes: Vec::new() }, None, None, None,
+                       nlris, Vec::new()));
+        }
+        Safi::RouteTargetConstraint => {
+            let rtcs = decode_rtc_nlri(&remaining).unwrap_or_default();
+            return Ok((MpReachNlri { afi_safi, next_hops, prefixes: Vec::new() }, None, None, None,
+                       Vec::new(), rtcs));
+        }
         Safi::Unicast | Safi::Multicast => {
             let p = decode_nlri(&mut std::io::Cursor::new(&remaining), afi_safi.afi)?;
             (p, None, None, None)
@@ -250,10 +273,11 @@ fn parse_mp_reach(buf: &[u8]) -> Result<(MpReachNlri, Option<EvpnReachNlri>, Opt
         _ => (Vec::new(), None, None, None),
     };
 
-    Ok((MpReachNlri { afi_safi, next_hops, prefixes }, evpn_reach, flowspec_reach, bgpls_reach))
+    Ok((MpReachNlri { afi_safi, next_hops, prefixes }, evpn_reach, flowspec_reach, bgpls_reach,
+        Vec::new(), Vec::new()))
 }
 
-fn parse_mp_unreach(buf: &[u8]) -> Result<(MpUnreachNlri, Option<EvpnUnreachNlri>, Option<Vec<FlowspecNlri>>, Option<BgpLsUnreachNlri>)> {
+fn parse_mp_unreach(buf: &[u8]) -> Result<(MpUnreachNlri, Option<EvpnUnreachNlri>, Option<Vec<FlowspecNlri>>, Option<BgpLsUnreachNlri>, Option<Vec<SrPolicyNlri>>, Vec<RtcNlri>)> {
     if buf.len() < 3 {
         return Err(Error::UnexpectedEof { needed: 3, have: buf.len() });
     }
@@ -262,7 +286,7 @@ fn parse_mp_unreach(buf: &[u8]) -> Result<(MpUnreachNlri, Option<EvpnUnreachNlri
     let afi_safi = AfiSafi::new(afi, safi);
     let remaining = &buf[3..];
 
-    let (prefixes, evpn_unreach, flowspec_unreach, bgpls_unreach) = match afi_safi.safi {
+    let (prefixes, evpn_unreach, flowspec_unreach, bgpls_unreach): (Vec<_>, _, _, _) = match afi_safi.safi {
         Safi::Evpn => {
             let routes = decode_evpn_nlri(remaining).unwrap_or_default();
             (Vec::new(), Some(EvpnUnreachNlri { routes }), None, None)
@@ -275,6 +299,17 @@ fn parse_mp_unreach(buf: &[u8]) -> Result<(MpUnreachNlri, Option<EvpnUnreachNlri
         Safi::BgpLs => {
             let ls = decode_bgpls_unreach(remaining).unwrap_or_else(|_| BgpLsUnreachNlri { nlris: vec![] });
             (Vec::new(), None, None, Some(ls))
+        }
+        Safi::SrPolicy => {
+            let afi_is_ipv6 = matches!(afi_safi.afi, Afi::Ipv6);
+            let nlris = decode_srpolicy_nlri(remaining, afi_is_ipv6).unwrap_or_default();
+            return Ok((MpUnreachNlri { afi_safi, prefixes: Vec::new() }, None, None, None,
+                       Some(nlris), Vec::new()));
+        }
+        Safi::RouteTargetConstraint => {
+            let rtcs = decode_rtc_nlri(remaining).unwrap_or_default();
+            return Ok((MpUnreachNlri { afi_safi, prefixes: Vec::new() }, None, None, None,
+                       None, rtcs));
         }
         Safi::Unicast | Safi::Multicast => {
             let p = decode_nlri(&mut std::io::Cursor::new(remaining), afi_safi.afi)?;
@@ -291,7 +326,8 @@ fn parse_mp_unreach(buf: &[u8]) -> Result<(MpUnreachNlri, Option<EvpnUnreachNlri
         _ => (Vec::new(), None, None, None),
     };
 
-    Ok((MpUnreachNlri { afi_safi, prefixes }, evpn_unreach, flowspec_unreach, bgpls_unreach))
+    Ok((MpUnreachNlri { afi_safi, prefixes }, evpn_unreach, flowspec_unreach, bgpls_unreach,
+        None, Vec::new()))
 }
 
 fn parse_tunnel_encap(buf: &[u8]) -> Vec<TunnelEncapEntry> {

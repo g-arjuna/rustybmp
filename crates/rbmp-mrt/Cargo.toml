@@ -1,6 +1,6 @@
 [package]
-name        = "rbmp-rib"
-description = "In-memory RIB engine for BMP/BGP routes"
+name        = "rbmp-mrt"
+description = "MRT import/export (RFC 6396) for rustybmp — TABLE_DUMP_V2 and BGP4MP"
 version.workspace    = true
 edition.workspace    = true
 authors.workspace    = true
@@ -9,15 +9,12 @@ rust-version.workspace = true
 
 [dependencies]
 rbmp-core   = { workspace = true }
-dashmap     = { workspace = true }
-parking_lot = { workspace = true }
+rbmp-rib    = { workspace = true }
 serde       = { workspace = true }
 serde_json  = { workspace = true }
-serde_yaml  = { workspace = true }
-chrono      = { workspace = true }
-uuid        = { workspace = true }
-tracing     = { workspace = true }
-indexmap    = { workspace = true }
+bytes       = { workspace = true }
 ipnet       = { workspace = true }
+chrono      = { workspace = true }
+thiserror   = { workspace = true }
+tracing     = { workspace = true }
 tokio       = { workspace = true }
-metrics     = { workspace = true }

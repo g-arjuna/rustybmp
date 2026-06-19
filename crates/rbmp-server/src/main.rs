@@ -3,6 +3,8 @@ mod receiver;
 mod archive;
 mod governor;
 mod api;
+mod dns;
+mod proxy;
 
 use std::sync::Arc;
 use std::path::Path;
@@ -16,6 +18,10 @@ use rbmp_store::{RouteStore, writer::run_store_writer};
 use rbmp_store::query::QueryEngine;
 use rbmp_enrichment::{VrpCache, EnrichmentEngine};
 use rbmp_enrichment::rtr::RtrClient;
+use rbmp_kafka::{KafkaProducer, run_kafka_sink};
+use rbmp_core::collector_protocol::{COLLECTOR_PORT, read_frame};
+use rbmp_core::bmp::parser::{parse_bmp_message, DEFAULT_MAX_FRAME};
+use rbmp_core::bmp::BmpMessage;
 use metrics_exporter_prometheus::PrometheusHandle;
 use api::{AppState, build_router};
 
@@ -116,6 +122,63 @@ async fn main() -> Result<()> {
         });
     }
 
+    // ── Kafka output sink ───────────────────────────────────────────────────
+    if cfg.kafka.enabled {
+        match KafkaProducer::new(&cfg.kafka.brokers, &cfg.kafka.topic_prefix) {
+            Ok(producer) => {
+                info!(brokers = %cfg.kafka.brokers, prefix = %cfg.kafka.topic_prefix,
+                    "Kafka output sink enabled");
+                let kafka_rx   = event_tx.subscribe();
+                let cancel_k   = cancel.clone();
+                tokio::spawn(async move {
+                    run_kafka_sink(producer, kafka_rx, cancel_k).await;
+                });
+            }
+            Err(e) => {
+                error!(error = %e, "Failed to create Kafka producer — Kafka output disabled");
+            }
+        }
+    }
+
+    // ── DNS PTR cache ─────────────────────────────────────────────────────────
+    let dns_cache = if cfg.dns.enabled {
+        info!(ttl_secs = cfg.dns.ttl_secs, "DNS PTR enrichment enabled");
+        let cache = dns::DnsCache::new(cfg.dns.ttl_secs);
+        // Spawn background eviction task (every 10 minutes)
+        {
+            let cache2   = cache.clone();
+            let cancel_d = cancel.clone();
+            tokio::spawn(async move {
+                let mut interval = tokio::time::interval(std::time::Duration::from_secs(600));
+                loop {
+                    tokio::select! {
+                        _ = cancel_d.cancelled() => break,
+                        _ = interval.tick() => cache2.evict_expired(),
+                    }
+                }
+            });
+        }
+        Some(cache)
+    } else {
+        None
+    };
+
+    // ── BMP Proxy task ────────────────────────────────────────────────────────
+    if cfg.proxy.enabled {
+        let proxy_cfg = proxy::ProxyConfig {
+            listen_addr:     cfg.proxy.listen_addr.clone(),
+            upstream_addr:   cfg.proxy.upstream_addr.clone(),
+            max_frame_bytes: cfg.bmp.max_frame_bytes,
+        };
+        let cancel_p = cancel.clone();
+        let msg_tx_p = msg_tx.clone();
+        tokio::spawn(async move {
+            if let Err(e) = proxy::run_bmp_proxy(proxy_cfg, cancel_p, msg_tx_p).await {
+                error!(error = %e, "BMP proxy exited with error");
+            }
+        });
+    }
+
     // ── BMP Receiver task ─────────────────────────────────────────────────────
     {
         let cancel2     = cancel.clone();
@@ -124,7 +187,7 @@ async fn main() -> Result<()> {
         let archive2    = Arc::clone(&archive);
         let msg_tx2     = msg_tx.clone();
         tokio::spawn(async move {
-            if let Err(e) = receiver::run_bmp_receiver(bmp_cfg, cancel2, msg_tx2, shed2, archive2).await {
+            if let Err(e) = receiver::run_bmp_receiver(bmp_cfg, cancel2, msg_tx2, shed2, archive2, dns_cache).await {
                 error!(error = %e, "BMP receiver exited with error");
             }
         });
@@ -166,6 +229,36 @@ async fn main() -> Result<()> {
         });
     }
 
+    // ── Core collector listener (RV3-10) ──────────────────────────────────────
+    {
+        let collector_addr: std::net::SocketAddr =
+            format!("0.0.0.0:{COLLECTOR_PORT}").parse()?;
+        let coll_listener = tokio::net::TcpListener::bind(collector_addr).await?;
+        info!(addr = %collector_addr, "Collector listener ready (RV3-10)");
+
+        let msg_tx_c = msg_tx.clone();
+        let cancel_c = cancel.clone();
+        tokio::spawn(async move {
+            loop {
+                tokio::select! {
+                    _ = cancel_c.cancelled() => break,
+                    result = coll_listener.accept() => {
+                        match result {
+                            Ok((stream, peer)) => {
+                                let tx2 = msg_tx_c.clone();
+                                let cancel2 = cancel_c.clone();
+                                tokio::spawn(async move {
+                                    handle_collector_conn(stream, peer, tx2, cancel2).await;
+                                });
+                            }
+                            Err(e) => error!(error = %e, "Collector accept error"),
+                        }
+                    }
+                }
+            }
+        });
+    }
+
     // ── HTTP Server ───────────────────────────────────────────────────────────
     let queries = Arc::new(QueryEngine::new(Arc::clone(&store)));
     let registry = Arc::new(cfg.registry.clone());
@@ -188,4 +281,57 @@ async fn main() -> Result<()> {
 
     info!("rustybmp shutdown complete");
     Ok(())
+}
+
+// ─── Core: collector connection handler (RV3-10) ─────────────────────────────
+
+/// Accept `CollectorEnvelope` frames from an `rbmp-collector` edge process,
+/// re-parse each BMP PDU, and feed it into the Core's BMP message channel.
+async fn handle_collector_conn(
+    stream:  tokio::net::TcpStream,
+    peer:    std::net::SocketAddr,
+    msg_tx:  tokio::sync::mpsc::Sender<BmpMessage>,
+    cancel:  CancellationToken,
+) {
+    info!(collector = %peer, "rbmp-collector connected");
+    let mut reader = tokio::io::BufReader::new(stream);
+    loop {
+        let envelope = tokio::select! {
+            _ = cancel.cancelled() => break,
+            result = read_frame(&mut reader) => match result {
+                Ok(Some(env)) => env,
+                Ok(None) => {
+                    info!(collector = %peer, "rbmp-collector disconnected");
+                    break;
+                }
+                Err(e) => {
+                    error!(collector = %peer, error = %e, "collector frame error");
+                    break;
+                }
+            }
+        };
+
+        let payload = match parse_bmp_message(
+            &envelope.raw_bmp,
+            envelope.speaker_addr,
+            DEFAULT_MAX_FRAME,
+        ) {
+            Ok(p)  => p,
+            Err(e) => {
+                tracing::warn!(collector = %peer, error = %e, "collector BMP parse error");
+                continue;
+            }
+        };
+
+        let msg = BmpMessage {
+            id:           uuid::Uuid::new_v4(),
+            received_at:  envelope.received_at,
+            speaker_addr: envelope.speaker_addr,
+            payload,
+        };
+
+        if msg_tx.send(msg).await.is_err() {
+            break; // receiver dropped — shutdown
+        }
+    }
 }

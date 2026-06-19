@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::net::IpAddr;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use rbmp_core::bgp::types::{PathAttributes, Prefix};
+use rbmp_core::bgp::types::{PathAttributes, Prefix, LlgrState};
 use rbmp_core::bmp::types::RibType;
 
 /// A route entry in the RIB
@@ -17,6 +17,10 @@ pub struct RibEntry {
     pub peer_as:     u32,
     /// True when this is the best-path among multiple paths for the same prefix
     pub is_best:     bool,
+    /// LLGR stale state for this route (RFC 9494)
+    pub llgr_state:  LlgrState,
+    /// Wall-clock time at which this route was marked stale (set by LLGR timer)
+    pub stale_at:    Option<DateTime<Utc>>,
 }
 
 /// Per-peer, per-RIB-type route table.
@@ -115,5 +119,39 @@ impl RibTable {
 
     pub fn rib_counts(&self) -> HashMap<RibType, usize> {
         self.tables.iter().map(|(k, v)| (*k, v.len())).collect()
+    }
+
+    /// Mark every route in this table as LLGR-stale (called on peer Down when LLGR active).
+    /// Records the stale timestamp so callers can later expire entries.
+    pub fn mark_stale_all(&mut self, at: DateTime<Utc>) {
+        for table in self.tables.values_mut() {
+            for entry in table.values_mut() {
+                if entry.llgr_state == LlgrState::Normal {
+                    entry.llgr_state = LlgrState::StaleMarked;
+                    entry.stale_at   = Some(at);
+                }
+            }
+        }
+    }
+
+    /// Remove all entries whose stale timer has expired (stale_at + stale_secs <= now).
+    /// Returns the number of routes deleted.
+    pub fn drain_deleted_stale(&mut self, now: DateTime<Utc>, stale_secs: u32) -> usize {
+        let mut removed = 0usize;
+        for table in self.tables.values_mut() {
+            table.retain(|_, entry| {
+                if entry.llgr_state == LlgrState::StaleMarked {
+                    if let Some(stale_at) = entry.stale_at {
+                        if (now - stale_at).num_seconds() >= stale_secs as i64 {
+                            entry.llgr_state = LlgrState::Deleted;
+                            removed += 1;
+                            return false;
+                        }
+                    }
+                }
+                true
+            });
+        }
+        removed
     }
 }

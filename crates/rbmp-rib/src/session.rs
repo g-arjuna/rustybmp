@@ -33,6 +33,10 @@ pub struct PeerSession {
     /// AFI/SAFIs for which Add-Path is active (RFC 7911)
     /// Populated from the Add-Path capability in PeerUp OPEN.
     pub add_path_families: Vec<(AfiSafi, u8)>,
+    /// LLGR stale time negotiated in OPEN (RFC 9494); 0 = LLGR not active
+    pub llgr_stale_secs:   u32,
+    /// True when LLGR capability was present in peer OPEN
+    pub llgr_active:       bool,
 }
 
 impl PeerSession {
@@ -50,6 +54,8 @@ impl PeerSession {
             route_counts:      HashMap::new(),
             flap_count:        0,
             add_path_families: Vec::new(),
+            llgr_stale_secs:   0,
+            llgr_active:       false,
         }
     }
 
@@ -63,6 +69,22 @@ impl PeerSession {
         self.add_path_families = caps.iter().find_map(|c| {
             if let BgpCapability::AddPath(entries) = c { Some(entries.clone()) } else { None }
         }).unwrap_or_default();
+        // Detect LLGR capability (RFC 9494)
+        // Each entry: AFI(2)+SAFI(1)+flags(1)+stale_time(3) = 7 bytes
+        // We take the maximum stale_time across all advertised AFI/SAFIs
+        self.llgr_stale_secs = caps.iter().find_map(|c| {
+            if let BgpCapability::LongLivedGracefulRestart { entries } = c {
+                let mut max_secs = 0u32;
+                let mut i = 0;
+                while i + 7 <= entries.len() {
+                    let t = u32::from_be_bytes([0, entries[i+4], entries[i+5], entries[i+6]]);
+                    if t > max_secs { max_secs = t; }
+                    i += 7;
+                }
+                Some(max_secs)
+            } else { None }
+        }).unwrap_or(0);
+        self.llgr_active = self.llgr_stale_secs > 0;
         self.capabilities = caps;
     }
 

@@ -23,7 +23,8 @@ CREATE TABLE IF NOT EXISTS route_events (
     ext_communities VARCHAR,
     large_communities VARCHAR,
     originator_id   VARCHAR,
-    atomic_aggregate BOOLEAN DEFAULT false
+    atomic_aggregate BOOLEAN DEFAULT false,
+    collector_id    VARCHAR               -- NULL for direct BMP connections (RV3-10)
 );
 
 -- BGP peer session events
@@ -37,7 +38,8 @@ CREATE TABLE IF NOT EXISTS peer_events (
     local_as        UINTEGER,
     hold_time       USMALLINT,
     capabilities    VARCHAR,               -- JSON array
-    reason          VARCHAR
+    reason          VARCHAR,
+    collector_id    VARCHAR
 );
 
 -- BMP speaker sessions
@@ -48,7 +50,8 @@ CREATE TABLE IF NOT EXISTS speaker_events (
     event_type      VARCHAR     NOT NULL,  -- 'speaker_up' | 'speaker_down'
     sys_name        VARCHAR,
     sys_descr       VARCHAR,
-    reason          VARCHAR
+    reason          VARCHAR,
+    collector_id    VARCHAR
 );
 
 -- Statistics snapshots (RFC 7854 + RFC 9972)
@@ -91,4 +94,6 @@ CREATE INDEX IF NOT EXISTS idx_route_events_time       ON route_events (occurred
 CREATE INDEX IF NOT EXISTS idx_route_events_as_path    ON route_events (as_path);
 CREATE INDEX IF NOT EXISTS idx_peer_events_peer        ON peer_events (peer_addr);
 CREATE INDEX IF NOT EXISTS idx_peer_events_time        ON peer_events (occurred_at);
+CREATE INDEX IF NOT EXISTS idx_route_events_collector  ON route_events (collector_id);
+CREATE INDEX IF NOT EXISTS idx_peer_events_collector   ON peer_events (collector_id);
 "#;

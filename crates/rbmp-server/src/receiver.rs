@@ -13,6 +13,7 @@ use rbmp_core::bmp::parser::parse_bmp_message;
 use rbmp_core::bmp::types::{BmpMessage, BmpPayload};
 use crate::archive::BmpArchive;
 use crate::config::BmpConfig;
+use crate::dns::DnsCache;
 use crate::governor::ShedSignal;
 
 const BMP_HEADER_LEN: usize = 6;
@@ -24,6 +25,7 @@ pub async fn run_bmp_receiver(
     tx:      mpsc::Sender<BmpMessage>,
     shed:    ShedSignal,
     archive: Arc<BmpArchive>,
+    dns:     Option<DnsCache>,
 ) -> Result<()> {
     let listener = TcpListener::bind(&cfg.listen_addr).await?;
     info!(addr = %cfg.listen_addr, "BMP receiver listening");
@@ -42,9 +44,10 @@ pub async fn run_bmp_receiver(
                         let cancel2  = cancel.clone();
                         let shed2    = shed.clone();
                         let archive2 = Arc::clone(&archive);
+                        let dns2     = dns.clone();
                         tokio::spawn(async move {
                             if let Err(e) = handle_connection(
-                                stream, peer, cfg2, cancel2, tx2, shed2, archive2,
+                                stream, peer, cfg2, cancel2, tx2, shed2, archive2, dns2,
                             ).await {
                                 warn!(%peer, error = %e, "BMP connection error");
                             }
@@ -60,7 +63,7 @@ pub async fn run_bmp_receiver(
     Ok(())
 }
 
-#[instrument(skip(stream, cfg, cancel, tx, shed, archive), fields(%peer))]
+#[instrument(skip(stream, cfg, cancel, tx, shed, archive, dns), fields(%peer))]
 async fn handle_connection(
     mut stream: TcpStream,
     peer:       SocketAddr,
@@ -69,9 +72,20 @@ async fn handle_connection(
     tx:         mpsc::Sender<BmpMessage>,
     shed:       ShedSignal,
     archive:    Arc<BmpArchive>,
+    dns:        Option<DnsCache>,
 ) -> Result<()> {
-    info!("BMP speaker connected");
     let speaker_addr = peer.ip();
+
+    // DNS PTR enrichment: resolve hostname for the connecting speaker
+    let hostname = if let Some(ref cache) = dns {
+        cache.lookup(speaker_addr).await
+    } else {
+        None
+    };
+    match &hostname {
+        Some(name) => info!(hostname = %name, "BMP speaker connected"),
+        None       => info!("BMP speaker connected"),
+    }
     let mut buf = BytesMut::with_capacity(65536);
 
     loop {

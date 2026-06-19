@@ -44,6 +44,49 @@ pub enum EvpnRoute {
         gw_ip:        Option<IpAddr>,
         mpls_label:   u32,
     },
+    /// Type 6: Selective Multicast Ethernet Tag A-D route (RFC 8365 §6.3)
+    SelectiveMulticastEthernetTag {
+        rd:                    [u8; 8],
+        ethernet_tag:          u32,
+        multicast_source:      IpAddr,
+        multicast_group:       IpAddr,
+        originating_router_ip: IpAddr,
+    },
+    /// Type 7: IGMP Join Synch A-D route (RFC 8365 §11.2)
+    IgmpJoinSynch {
+        rd:                    [u8; 8],
+        ethernet_tag:          u32,
+        multicast_source:      IpAddr,
+        multicast_group:       IpAddr,
+        originating_router_ip: IpAddr,
+    },
+    /// Type 8: IGMP Leave Synch A-D route (RFC 8365 §11.2)
+    IgmpLeaveSynch {
+        rd:                    [u8; 8],
+        ethernet_tag:          u32,
+        multicast_source:      IpAddr,
+        multicast_group:       IpAddr,
+        originating_router_ip: IpAddr,
+    },
+    /// Type 9: Per-Region I-PMSI A-D route (RFC 9251)
+    PerRegionIPmsi {
+        rd:                    [u8; 8],
+        ethernet_tag:          u32,
+        originating_router_ip: IpAddr,
+    },
+    /// Type 10: S-PMSI A-D route (RFC 9251)
+    SPmsi {
+        rd:                    [u8; 8],
+        ethernet_tag:          u32,
+        multicast_source:      IpAddr,
+        multicast_group:       IpAddr,
+        originating_router_ip: IpAddr,
+    },
+    /// Type 11: Leaf A-D route (RFC 9572)
+    LeafAD {
+        route_key: Vec<u8>,
+        path_id:   u32,
+    },
     /// Unknown type — preserved for forward compatibility
     Unknown { route_type: u8, data: Vec<u8> },
 }
@@ -56,6 +99,12 @@ impl EvpnRoute {
             Self::InclusiveMulticastEthernetTag { .. } => "inclusive-multicast-ethernet-tag",
             Self::EthernetSegment { .. }               => "ethernet-segment",
             Self::IpPrefix { .. }                      => "ip-prefix",
+            Self::SelectiveMulticastEthernetTag { .. } => "selective-multicast-ethernet-tag",
+            Self::IgmpJoinSynch { .. }                 => "igmp-join-synch",
+            Self::IgmpLeaveSynch { .. }                => "igmp-leave-synch",
+            Self::PerRegionIPmsi { .. }                => "per-region-i-pmsi",
+            Self::SPmsi { .. }                         => "s-pmsi",
+            Self::LeafAD { .. }                        => "leaf-ad",
             Self::Unknown { .. }                       => "unknown",
         }
     }
@@ -67,6 +116,12 @@ impl EvpnRoute {
             Self::InclusiveMulticastEthernetTag { .. } => 3,
             Self::EthernetSegment { .. }               => 4,
             Self::IpPrefix { .. }                      => 5,
+            Self::SelectiveMulticastEthernetTag { .. } => 6,
+            Self::IgmpJoinSynch { .. }                 => 7,
+            Self::IgmpLeaveSynch { .. }                => 8,
+            Self::PerRegionIPmsi { .. }                => 9,
+            Self::SPmsi { .. }                         => 10,
+            Self::LeafAD { .. }                        => 11,
             Self::Unknown { route_type, .. }           => *route_type,
         }
     }
@@ -199,6 +254,87 @@ fn parse_evpn_route(route_type: u8, v: &[u8]) -> Result<EvpnRoute> {
             let mpls_label = decode_mpls_label(&v[label_off..label_off + 3]);
             Ok(EvpnRoute::IpPrefix { rd, esi, ethernet_tag, prefix, prefix_len, gw_ip, mpls_label })
         }
+        6 | 7 | 8 => {
+            // Types 6,7,8: RD(8) + ETag(4) + src_ip_len(1) + src_ip(4/16)
+            //             + grp_ip_len(1) + grp_ip(4/16) + orig_ip_len(1) + orig_ip(4/16)
+            if v.len() < 13 {
+                return Err(Error::UnexpectedEof { needed: 13, have: v.len() });
+            }
+            let mut rd = [0u8; 8]; rd.copy_from_slice(&v[0..8]);
+            let ethernet_tag = u32::from_be_bytes([v[8], v[9], v[10], v[11]]);
+            let mut pos = 12;
+            let src_ip_len = v[pos]; pos += 1;
+            let multicast_source = decode_evpn_router_ip(src_ip_len, &v[pos..])?;
+            pos += if src_ip_len == 32 { 4 } else { 16 };
+            if pos >= v.len() {
+                return Err(Error::UnexpectedEof { needed: pos + 1, have: v.len() });
+            }
+            let grp_ip_len = v[pos]; pos += 1;
+            let multicast_group = decode_evpn_router_ip(grp_ip_len, &v[pos..])?;
+            pos += if grp_ip_len == 32 { 4 } else { 16 };
+            if pos >= v.len() {
+                return Err(Error::UnexpectedEof { needed: pos + 1, have: v.len() });
+            }
+            let orig_ip_len = v[pos]; pos += 1;
+            let originating_router_ip = decode_evpn_router_ip(orig_ip_len, &v[pos..])?;
+            match route_type {
+                6 => Ok(EvpnRoute::SelectiveMulticastEthernetTag {
+                    rd, ethernet_tag, multicast_source, multicast_group, originating_router_ip,
+                }),
+                7 => Ok(EvpnRoute::IgmpJoinSynch {
+                    rd, ethernet_tag, multicast_source, multicast_group, originating_router_ip,
+                }),
+                _ => Ok(EvpnRoute::IgmpLeaveSynch {
+                    rd, ethernet_tag, multicast_source, multicast_group, originating_router_ip,
+                }),
+            }
+        }
+        9 => {
+            // Type 9: RD(8) + ETag(4) + orig_ip_len(1) + orig_ip(4/16)
+            if v.len() < 13 {
+                return Err(Error::UnexpectedEof { needed: 13, have: v.len() });
+            }
+            let mut rd = [0u8; 8]; rd.copy_from_slice(&v[0..8]);
+            let ethernet_tag = u32::from_be_bytes([v[8], v[9], v[10], v[11]]);
+            let ip_len = v[12];
+            let originating_router_ip = decode_evpn_router_ip(ip_len, &v[13..])?;
+            Ok(EvpnRoute::PerRegionIPmsi { rd, ethernet_tag, originating_router_ip })
+        }
+        10 => {
+            // Type 10: same structure as type 6/7/8
+            if v.len() < 13 {
+                return Err(Error::UnexpectedEof { needed: 13, have: v.len() });
+            }
+            let mut rd = [0u8; 8]; rd.copy_from_slice(&v[0..8]);
+            let ethernet_tag = u32::from_be_bytes([v[8], v[9], v[10], v[11]]);
+            let mut pos = 12;
+            let src_ip_len = v[pos]; pos += 1;
+            let multicast_source = decode_evpn_router_ip(src_ip_len, &v[pos..])?;
+            pos += if src_ip_len == 32 { 4 } else { 16 };
+            if pos >= v.len() {
+                return Err(Error::UnexpectedEof { needed: pos + 1, have: v.len() });
+            }
+            let grp_ip_len = v[pos]; pos += 1;
+            let multicast_group = decode_evpn_router_ip(grp_ip_len, &v[pos..])?;
+            pos += if grp_ip_len == 32 { 4 } else { 16 };
+            if pos >= v.len() {
+                return Err(Error::UnexpectedEof { needed: pos + 1, have: v.len() });
+            }
+            let orig_ip_len = v[pos]; pos += 1;
+            let originating_router_ip = decode_evpn_router_ip(orig_ip_len, &v[pos..])?;
+            Ok(EvpnRoute::SPmsi { rd, ethernet_tag, multicast_source, multicast_group, originating_router_ip })
+        }
+        11 => {
+            // Type 11: Leaf A-D route — route_key (variable) + path_id(4)
+            if v.len() < 4 {
+                return Err(Error::UnexpectedEof { needed: 4, have: v.len() });
+            }
+            let path_id = u32::from_be_bytes([
+                v[v.len()-4], v[v.len()-3], v[v.len()-2], v[v.len()-1],
+            ]);
+            let route_key = v[..v.len()-4].to_vec();
+            Ok(EvpnRoute::LeafAD { route_key, path_id })
+        }
         _ => Ok(EvpnRoute::Unknown { route_type, data: v.to_vec() }),
     }
 }
@@ -231,6 +367,68 @@ fn decode_evpn_router_ip(ip_len: u8, buf: &[u8]) -> Result<IpAddr> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_evpn_type6_selective_multicast() {
+        // RD(8) + ETag(4) + src_ip_len(1)+src_ip(4) + grp_ip_len(1)+grp_ip(4) + orig_ip_len(1)+orig_ip(4)
+        let mut v = vec![];
+        v.extend_from_slice(&[0u8; 8]);       // RD
+        v.extend_from_slice(&[0, 0, 0, 1]);   // ETag=1
+        v.push(32);                            // src_ip_len
+        v.extend_from_slice(&[239, 1, 1, 1]); // 239.1.1.1
+        v.push(32);                            // grp_ip_len
+        v.extend_from_slice(&[232, 0, 0, 1]); // 232.0.0.1
+        v.push(32);                            // orig_ip_len
+        v.extend_from_slice(&[10, 0, 0, 1]);  // 10.0.0.1
+        let mut buf = vec![6u8, v.len() as u8];
+        buf.extend_from_slice(&v);
+        let routes = decode_evpn_nlri(&buf).unwrap();
+        assert_eq!(routes.len(), 1);
+        assert_eq!(routes[0].route_type_code(), 6);
+        assert_eq!(routes[0].route_type_name(), "selective-multicast-ethernet-tag");
+    }
+
+    #[test]
+    fn test_evpn_type7_igmp_join() {
+        let mut v = vec![];
+        v.extend_from_slice(&[0u8; 8]);
+        v.extend_from_slice(&[0, 0, 0, 2]);
+        v.push(32); v.extend_from_slice(&[1, 1, 1, 1]);
+        v.push(32); v.extend_from_slice(&[225, 0, 0, 1]);
+        v.push(32); v.extend_from_slice(&[10, 0, 0, 2]);
+        let mut buf = vec![7u8, v.len() as u8];
+        buf.extend_from_slice(&v);
+        let routes = decode_evpn_nlri(&buf).unwrap();
+        assert_eq!(routes[0].route_type_code(), 7);
+        assert_eq!(routes[0].route_type_name(), "igmp-join-synch");
+    }
+
+    #[test]
+    fn test_evpn_type9_per_region_ipmsi() {
+        let mut v = vec![];
+        v.extend_from_slice(&[0u8; 8]);
+        v.extend_from_slice(&[0, 0, 0, 5]);
+        v.push(32); v.extend_from_slice(&[10, 0, 0, 5]);
+        let mut buf = vec![9u8, v.len() as u8];
+        buf.extend_from_slice(&v);
+        let routes = decode_evpn_nlri(&buf).unwrap();
+        assert_eq!(routes[0].route_type_code(), 9);
+        assert_eq!(routes[0].route_type_name(), "per-region-i-pmsi");
+    }
+
+    #[test]
+    fn test_evpn_type11_leaf_ad() {
+        // route_key(4) + path_id(4)
+        let v = vec![0xAA, 0xBB, 0xCC, 0xDD, 0, 0, 0, 42];
+        let mut buf = vec![11u8, v.len() as u8];
+        buf.extend_from_slice(&v);
+        let routes = decode_evpn_nlri(&buf).unwrap();
+        assert_eq!(routes[0].route_type_code(), 11);
+        match &routes[0] {
+            EvpnRoute::LeafAD { path_id, .. } => assert_eq!(*path_id, 42),
+            _ => panic!("expected LeafAD"),
+        }
+    }
 
     #[test]
     fn test_evpn_type1_auto_discovery() {

@@ -21,6 +21,12 @@ pub struct Config {
     pub rpki:     RpkiConfig,
     #[serde(default)]
     pub registry: SpeakerRegistry,
+    #[serde(default)]
+    pub dns:      DnsConfig,
+    #[serde(default)]
+    pub proxy:    ProxyConfig,
+    #[serde(default)]
+    pub kafka:    KafkaConfig,
 }
 
 impl Config {
@@ -150,9 +156,80 @@ pub struct RpkiConfig {
 }
 
 fn default_rtr_addr() -> String { "127.0.0.1:3323".into() }
+fn default_dns_ttl() -> u64 { 300 }
+fn default_proxy_addr() -> String { "0.0.0.0:5001".into() }
+fn default_proxy_upstream() -> String { "127.0.0.1:5002".into() }
 
 impl Default for RpkiConfig {
     fn default() -> Self {
         Self { enabled: false, rtr_addr: default_rtr_addr() }
+    }
+}
+
+/// DNS PTR-lookup enrichment configuration (RV3-4)
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct DnsConfig {
+    /// Perform PTR lookups for BMP speaker addresses on connect
+    #[serde(default)]
+    pub enabled:  bool,
+    /// TTL in seconds for cached PTR results
+    #[serde(default = "default_dns_ttl")]
+    pub ttl_secs: u64,
+}
+
+impl Default for DnsConfig {
+    fn default() -> Self {
+        Self { enabled: false, ttl_secs: default_dns_ttl() }
+    }
+}
+
+/// BMP proxy/intercept configuration (RV3-7)
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ProxyConfig {
+    /// Enable the BMP proxy listener
+    #[serde(default)]
+    pub enabled:      bool,
+    /// Address for the proxy to listen on (routers connect here)
+    #[serde(default = "default_proxy_addr")]
+    pub listen_addr:  String,
+    /// Upstream BMP collector to forward all raw bytes to
+    #[serde(default = "default_proxy_upstream")]
+    pub upstream_addr: String,
+}
+
+impl Default for ProxyConfig {
+    fn default() -> Self {
+        Self {
+            enabled:       false,
+            listen_addr:   default_proxy_addr(),
+            upstream_addr: default_proxy_upstream(),
+        }
+    }
+}
+
+fn default_kafka_brokers() -> String { "localhost:9092".into() }
+fn default_kafka_prefix()  -> String { "rustybmp".into() }
+
+/// Kafka output configuration (RV3-5)
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct KafkaConfig {
+    /// Enable Kafka output sink
+    #[serde(default)]
+    pub enabled:      bool,
+    /// Comma-separated Kafka broker list
+    #[serde(default = "default_kafka_brokers")]
+    pub brokers:      String,
+    /// Topic prefix (e.g. "rustybmp" → "rustybmp.peer", "rustybmp.unicast_prefix")
+    #[serde(default = "default_kafka_prefix")]
+    pub topic_prefix: String,
+}
+
+impl Default for KafkaConfig {
+    fn default() -> Self {
+        Self {
+            enabled:      false,
+            brokers:      default_kafka_brokers(),
+            topic_prefix: default_kafka_prefix(),
+        }
     }
 }

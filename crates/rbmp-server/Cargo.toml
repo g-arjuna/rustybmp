@@ -11,11 +11,16 @@ rust-version.workspace = true
 name = "rustybmp"
 path = "src/main.rs"
 
+[[bin]]
+name = "rbmp-collector"
+path = "src/bin/collector.rs"
+
 [dependencies]
 rbmp-core        = { workspace = true }
 rbmp-rib         = { workspace = true }
 rbmp-store       = { workspace = true }
 rbmp-enrichment  = { workspace = true }
+rbmp-kafka       = { workspace = true }
 
 # async
 tokio       = { workspace = true }

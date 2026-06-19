@@ -6,6 +6,23 @@ use smallvec::SmallVec;
 use super::evpn::EvpnRoute;
 use super::flowspec::FlowspecNlri;
 
+// ─── LLGR state machine (RFC 9494) ───────────────────────────────────────────
+
+/// Lifecycle state of a route under Long-Lived Graceful Restart.
+/// Transitions: Normal → StaleMarked (on peer Down + LLGR active)
+///              StaleMarked → Deleted (after stale timer expiry)
+///              Any → Normal (on route re-announcement from peer)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum LlgrState {
+    #[default]
+    Normal,
+    /// Route is stale; COMMUNITY_LLGR_STALE attached; still usable for forwarding
+    StaleMarked,
+    /// Stale timer expired; route should be removed
+    Deleted,
+}
+
 // ─── AFI / SAFI ───────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -33,12 +50,16 @@ impl From<u16> for Afi {
 pub enum Safi {
     Unicast,
     Multicast,
+    MplsVpnMulticast,
     LabeledUnicast,
     MplsVpn,
     Evpn,
     BgpLs,
+    SrPolicy,
     Flowspec,
     FlowspecVpn,
+    Vpls,
+    RouteTargetConstraint,
     Unknown(u8),
 }
 
@@ -48,9 +69,13 @@ impl From<u8> for Safi {
             1   => Self::Unicast,
             2   => Self::Multicast,
             4   => Self::LabeledUnicast,
+            5   => Self::MplsVpnMulticast,
+            65  => Self::Vpls,
             70  => Self::Evpn,
             71  => Self::BgpLs,
+            73  => Self::SrPolicy,
             128 => Self::MplsVpn,
+            132 => Self::RouteTargetConstraint,
             133 => Self::Flowspec,
             134 => Self::FlowspecVpn,
             _   => Self::Unknown(v),
@@ -113,15 +138,19 @@ impl Afi {
 impl Safi {
     pub fn as_u8(self) -> u8 {
         match self {
-            Self::Unicast        => 1,
-            Self::Multicast      => 2,
-            Self::LabeledUnicast => 4,
-            Self::Evpn           => 70,
-            Self::BgpLs          => 71,
-            Self::MplsVpn        => 128,
-            Self::Flowspec       => 133,
-            Self::FlowspecVpn    => 134,
-            Self::Unknown(v)     => v,
+            Self::Unicast                => 1,
+            Self::Multicast              => 2,
+            Self::LabeledUnicast         => 4,
+            Self::MplsVpnMulticast       => 5,
+            Self::Vpls                   => 65,
+            Self::Evpn                   => 70,
+            Self::BgpLs                  => 71,
+            Self::SrPolicy               => 73,
+            Self::MplsVpn                => 128,
+            Self::RouteTargetConstraint  => 132,
+            Self::Flowspec               => 133,
+            Self::FlowspecVpn            => 134,
+            Self::Unknown(v)             => v,
         }
     }
 }
@@ -465,7 +494,9 @@ pub enum BgpCapability {
     FourByteAsn(u32),
     AddPath(Vec<(AfiSafi, u8)>),  // u8 = send(1), recv(2), both(3)
     EnhancedRouteRefresh,
-    LongLivedGracefulRestart,
+    /// RFC 9494: carries per-AFI/SAFI stale-time entries
+    /// Each entry: AFI(2)+SAFI(1)+flags(1)+stale_time_secs(3) = 7 bytes
+    LongLivedGracefulRestart { entries: Vec<u8> },
     Fqdn { hostname: String, domain: String },
     Unknown { code: u8, data: Vec<u8> },
 }
@@ -482,7 +513,7 @@ impl BgpCapability {
             Self::FourByteAsn(_)           => 65,
             Self::AddPath(_)               => 69,
             Self::EnhancedRouteRefresh     => 70,
-            Self::LongLivedGracefulRestart => 71,
+            Self::LongLivedGracefulRestart { .. } => 71,
             Self::Fqdn { .. }              => 73,
             Self::Unknown { code, .. }     => *code,
         }
@@ -606,6 +637,13 @@ pub struct PathAttributes {
     // RFC 7752: BGP-LS NLRI (AFI=16388, SAFI=71)
     pub bgpls_reach:          Option<BgpLsReachNlri>,
     pub bgpls_unreach:        Option<BgpLsUnreachNlri>,
+    // RV3-2: BGP-LS path attribute (type 29) — topology details
+    pub bgpls_attr:           Option<super::bgpls::BgpLsAttribute>,
+    // RV3-1: SR Policy NLRI (AFI=1/2, SAFI=73)
+    pub sr_policy_nlris:      Vec<super::srpolicy::SrPolicyNlri>,
+    pub sr_policy_paths:      Vec<super::srpolicy::CandidatePath>,
+    // RV3-1: Route Target Constraint NLRI (AFI=1/2, SAFI=132)
+    pub rtc_nlris:            Vec<super::srpolicy::RtcNlri>,
     pub unknown:              Vec<RawAttribute>,
 }
 
