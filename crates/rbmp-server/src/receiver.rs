@@ -2,13 +2,14 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use anyhow::Result;
 use bytes::{Buf, BytesMut};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::AsyncReadExt;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn, error, debug, instrument};
+use metrics::counter;
 use chrono::Utc;
-use rbmp_core::bmp::parser::{parse_bmp_message, DEFAULT_MAX_FRAME};
+use rbmp_core::bmp::parser::parse_bmp_message;
 use rbmp_core::bmp::types::{BmpMessage, BmpPayload};
 use crate::archive::BmpArchive;
 use crate::config::BmpConfig;
@@ -108,9 +109,11 @@ async fn handle_connection(
                         && matches!(payload, BmpPayload::StatsReport { .. })
                     {
                         debug!("shedding StatsReport under backpressure");
+                        counter!("bmp_messages_shed_total", "speaker" => speaker_addr.to_string()).increment(1);
                         continue;
                     }
 
+                    counter!("bmp_messages_received_total", "speaker" => speaker_addr.to_string()).increment(1);
                     let msg = BmpMessage {
                         id:           uuid::Uuid::new_v4(),
                         received_at:  Utc::now(),
@@ -130,9 +133,28 @@ async fn handle_connection(
                 }
                 Err(e) => {
                     warn!(error = %e, "BMP parse error — skipping frame");
+                    counter!("bmp_parse_errors_total", "speaker" => speaker_addr.to_string()).increment(1);
                 }
             }
         }
     }
+
+    // RV2-6: synthesize Termination after TCP drop / EOF so RibManager evicts
+    // all stale routes for this speaker. Skip on clean server shutdown where
+    // the RIB is being torn down anyway.
+    if !cancel.is_cancelled() {
+        let synth = BmpMessage {
+            id:           uuid::Uuid::new_v4(),
+            received_at:  Utc::now(),
+            speaker_addr: speaker_addr.into(),
+            payload: BmpPayload::Termination {
+                reason_code: 0,
+                reason_text: Some("tcp-session-dropped".to_string()),
+            },
+        };
+        let _ = tx.send(synth).await;
+        info!("Sent synthetic Termination — stale routes evicted for {speaker_addr}");
+    }
+
     Ok(())
 }

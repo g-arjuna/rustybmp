@@ -1,33 +1,84 @@
 use std::sync::Arc;
+use std::time::Duration;
 use anyhow::Result;
 use tokio::sync::broadcast;
-use tracing::{debug, error, warn};
+use tracing::{error, warn};
+use metrics::counter;
 use rbmp_rib::event::{RibEvent, RibEventPayload, RouteAction};
 use rbmp_core::bgp::evpn::EvpnRoute;
 use crate::duck::RouteStore;
 
-/// Drives a RibEvent stream into DuckDB. Runs as a tokio task.
+const BATCH_SIZE:    usize        = 500;
+const BATCH_TIMEOUT: Duration     = Duration::from_millis(50);
+
+/// Drives a RibEvent stream into DuckDB using batched inserts.
+/// Collects up to BATCH_SIZE events or flushes after BATCH_TIMEOUT — whichever first.
+/// Target throughput: ≥ 1500 msg/sec.
 pub async fn run_store_writer(store: Arc<std::sync::Mutex<RouteStore>>, mut rx: broadcast::Receiver<RibEvent>) {
+    let mut batch: Vec<RibEvent> = Vec::with_capacity(BATCH_SIZE);
+
     loop {
-        match rx.recv().await {
-            Ok(ev) => {
-                if let Err(e) = persist(&store, &ev) {
-                    error!(?e, "Failed to persist RibEvent to DuckDB");
+        // Try to fill the batch up to BATCH_SIZE within BATCH_TIMEOUT
+        let deadline = tokio::time::sleep(BATCH_TIMEOUT);
+        tokio::pin!(deadline);
+
+        loop {
+            tokio::select! {
+                biased;
+                result = rx.recv() => {
+                    match result {
+                        Ok(ev) => {
+                            batch.push(ev);
+                            if batch.len() >= BATCH_SIZE { break; }
+                        }
+                        Err(broadcast::error::RecvError::Lagged(n)) => {
+                            warn!(%n, "Store writer lagged; {n} events dropped");
+                        }
+                        Err(broadcast::error::RecvError::Closed) => {
+                            // Flush remaining before exit
+                            if !batch.is_empty() {
+                                flush_batch(&store, &batch);
+                                batch.clear();
+                            }
+                            return;
+                        }
+                    }
                 }
+                _ = &mut deadline => { break; }
             }
-            Err(broadcast::error::RecvError::Lagged(n)) => {
-                warn!(%n, "Store writer lagged; {n} events dropped");
-            }
-            Err(broadcast::error::RecvError::Closed) => {
-                break;
-            }
+        }
+
+        if !batch.is_empty() {
+            let n = batch.len();
+            flush_batch(&store, &batch);
+            counter!("rib_events_written_total").increment(n as u64);
+            batch.clear();
         }
     }
 }
 
-fn persist(store: &std::sync::Mutex<RouteStore>, ev: &RibEvent) -> Result<()> {
-    let locked = store.lock().unwrap();
+/// Flush a batch of events inside a single DuckDB transaction.
+fn flush_batch(store: &std::sync::Mutex<RouteStore>, batch: &[RibEvent]) {
+    let locked = match store.lock() {
+        Ok(s) => s,
+        Err(e) => { error!("DuckDB lock poisoned: {e}"); return; }
+    };
     let conn = locked.conn();
+    if let Err(e) = conn.execute_batch("BEGIN") {
+        error!("DuckDB BEGIN failed: {e}"); return;
+    }
+    for ev in batch {
+        if let Err(e) = persist_one(conn, ev) {
+            error!(?e, "Failed to persist RibEvent in batch");
+        }
+    }
+    if let Err(e) = conn.execute_batch("COMMIT") {
+        error!("DuckDB COMMIT failed: {e}");
+        let _ = conn.execute_batch("ROLLBACK");
+    }
+}
+
+fn persist_one(conn: &duckdb::Connection, ev: &RibEvent) -> Result<()> {
     let id  = ev.id.to_string();
     let ts  = ev.occurred_at.to_rfc3339();
     let spk = ev.speaker.to_string();

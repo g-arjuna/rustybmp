@@ -33,3 +33,18 @@ checkpoint_secs = 60
 level  = "info"
 # Log format: pretty | json
 format = "pretty"
+
+[rpki]
+# Enable RPKI RTR client for route origin validation (RFC 8210)
+enabled  = false
+# RTR server address — Routinator default: 127.0.0.1:3323
+#                      rpki-client default: 127.0.0.1:3323
+rtr_addr = "127.0.0.1:3323"
+
+[registry]
+# Known BMP speaker metadata — enriches /api/speakers with hostname/vendor/site
+# [[registry.speakers]]
+# addr     = "192.0.2.1"
+# hostname = "xr-spine-01"
+# vendor   = "cisco-xr"
+# site     = "dc-lon-01"

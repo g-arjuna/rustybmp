@@ -14,6 +14,9 @@ use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 use rbmp_rib::RibManager;
 use rbmp_store::{RouteStore, writer::run_store_writer};
 use rbmp_store::query::QueryEngine;
+use rbmp_enrichment::{VrpCache, EnrichmentEngine};
+use rbmp_enrichment::rtr::RtrClient;
+use metrics_exporter_prometheus::PrometheusHandle;
 use api::{AppState, build_router};
 
 #[tokio::main]
@@ -25,6 +28,10 @@ async fn main() -> Result<()> {
     } else {
         config::Config::default_config()
     };
+
+    // ── Prometheus metrics recorder ───────────────────────────────────────────
+    let prom_handle: PrometheusHandle = metrics_exporter_prometheus::PrometheusBuilder::new()
+        .install_recorder()?;
 
     // ── Logging ───────────────────────────────────────────────────────────────
     let level = if cfg.log.level.is_empty() { "info" } else { &cfg.log.level };
@@ -62,12 +69,52 @@ async fn main() -> Result<()> {
     // ── Back-pressure governor ────────────────────────────────────────────────
     let shed_signal = governor::ShedSignal::new();
 
+    // ── RPKI enrichment ───────────────────────────────────────────────────────
+    let vrp_cache  = VrpCache::new();
+    let enrichment = Arc::new(EnrichmentEngine::new(vrp_cache.clone()));
+
     // ── BMP message channel ───────────────────────────────────────────────────
     let (msg_tx, mut msg_rx) = mpsc::channel(4096);
     let cancel = CancellationToken::new();
 
     // Spawn pressure monitor
     governor::spawn_pressure_monitor(msg_tx.clone(), shed_signal.clone());
+
+    // Spawn RTR client when RPKI is enabled
+    if cfg.rpki.enabled {
+        let rtr_addr = cfg.rpki.rtr_addr.clone();
+        let cancel2  = cancel.clone();
+        info!(rtr_addr = %rtr_addr, "RPKI RTR client enabled — connecting");
+        tokio::spawn(async move {
+            RtrClient::new(rtr_addr, vrp_cache).run(cancel2).await;
+        });
+    } else {
+        info!("RPKI RTR client disabled (set [rpki] enabled=true to activate)");
+    }
+
+    // ── Metrics gauge updater (every 15s) ────────────────────────────────────
+    {
+        let rib3        = Arc::clone(&rib);
+        let enrichment3 = Arc::clone(&enrichment);
+        let cancel3     = cancel.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(15));
+            loop {
+                tokio::select! {
+                    _ = cancel3.cancelled() => break,
+                    _ = interval.tick() => {
+                        let r = rib3.read().await;
+                        metrics::gauge!("rustybmp_speakers").set(r.speakers().len() as f64);
+                        metrics::gauge!("rustybmp_peers_up").set(r.total_peers_up() as f64);
+                        metrics::gauge!("rustybmp_routes_total").set(r.total_routes() as f64);
+                        drop(r);
+                        metrics::gauge!("rustybmp_vrp_count").set(enrichment3.vrp_count() as f64);
+                        metrics::gauge!("rustybmp_rtr_serial").set(enrichment3.rtr_serial() as f64);
+                    }
+                }
+            }
+        });
+    }
 
     // ── BMP Receiver task ─────────────────────────────────────────────────────
     {
@@ -121,11 +168,15 @@ async fn main() -> Result<()> {
 
     // ── HTTP Server ───────────────────────────────────────────────────────────
     let queries = Arc::new(QueryEngine::new(Arc::clone(&store)));
-    let state   = AppState {
-        rib:    Arc::clone(&rib),
+    let registry = Arc::new(cfg.registry.clone());
+    let state    = AppState {
+        rib:        Arc::clone(&rib),
         store,
         queries,
-        events: event_tx,
+        events:     event_tx,
+        enrichment: Arc::clone(&enrichment),
+        registry,
+        prom:       prom_handle,
     };
     let router  = build_router(state);
     let http_addr: std::net::SocketAddr = cfg.http.listen_addr.parse()?;

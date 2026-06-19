@@ -36,6 +36,7 @@ pub enum Safi {
     LabeledUnicast,
     MplsVpn,
     Evpn,
+    BgpLs,
     Flowspec,
     FlowspecVpn,
     Unknown(u8),
@@ -48,6 +49,7 @@ impl From<u8> for Safi {
             2   => Self::Multicast,
             4   => Self::LabeledUnicast,
             70  => Self::Evpn,
+            71  => Self::BgpLs,
             128 => Self::MplsVpn,
             133 => Self::Flowspec,
             134 => Self::FlowspecVpn,
@@ -115,6 +117,7 @@ impl Safi {
             Self::Multicast      => 2,
             Self::LabeledUnicast => 4,
             Self::Evpn           => 70,
+            Self::BgpLs          => 71,
             Self::MplsVpn        => 128,
             Self::Flowspec       => 133,
             Self::FlowspecVpn    => 134,
@@ -346,20 +349,57 @@ impl ExtendedCommunity {
     pub fn is_transitive(&self) -> bool { self.type_high & 0x40 == 0 }
 }
 
+impl ExtendedCommunity {
+    /// Human-readable kind tag used in structured output.
+    pub fn kind(&self) -> &'static str {
+        match (self.type_high & 0x3F, self.type_low) {
+            (0x00, 0x02) | (0x02, 0x02) => "route-target",
+            (0x01, 0x02)                => "route-target",
+            (0x00, 0x03) | (0x02, 0x03) => "route-origin-soo",
+            (0x01, 0x03)                => "route-origin-soo",
+            (0x03, 0x0B)                => "sr-te-color",
+            (0x41, 0x0C) | (0x01, 0x0C) => "vxlan-vni",
+            _                           => "extended-community",
+        }
+    }
+}
+
 impl fmt::Display for ExtendedCommunity {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self.type_high & 0x3F {
-            0x00 | 0x02 => {
-                // AS-specific
-                let admin = u16::from_be_bytes([self.value[0], self.value[1]]);
+        match (self.type_high & 0x3F, self.type_low) {
+            // Route Target — AS-specific (type 0x00/0x02, sub 0x02)
+            (0x00, 0x02) | (0x02, 0x02) => {
+                let admin    = u16::from_be_bytes([self.value[0], self.value[1]]);
                 let assigned = u32::from_be_bytes([self.value[2], self.value[3], self.value[4], self.value[5]]);
                 write!(f, "rt:{}:{}", admin, assigned)
             }
-            0x01 => {
-                // IPv4-specific
-                let admin = Ipv4Addr::from([self.value[0], self.value[1], self.value[2], self.value[3]]);
+            // Route Target — IPv4-specific (type 0x01, sub 0x02)
+            (0x01, 0x02) => {
+                let admin    = Ipv4Addr::from([self.value[0], self.value[1], self.value[2], self.value[3]]);
                 let assigned = u16::from_be_bytes([self.value[4], self.value[5]]);
                 write!(f, "rt:{}:{}", admin, assigned)
+            }
+            // Site-of-Origin (SOO) — AS-specific (type 0x00/0x02, sub 0x03)
+            (0x00, 0x03) | (0x02, 0x03) => {
+                let admin    = u16::from_be_bytes([self.value[0], self.value[1]]);
+                let assigned = u32::from_be_bytes([self.value[2], self.value[3], self.value[4], self.value[5]]);
+                write!(f, "soo:{}:{}", admin, assigned)
+            }
+            // Site-of-Origin — IPv4-specific (type 0x01, sub 0x03)
+            (0x01, 0x03) => {
+                let admin    = Ipv4Addr::from([self.value[0], self.value[1], self.value[2], self.value[3]]);
+                let assigned = u16::from_be_bytes([self.value[4], self.value[5]]);
+                write!(f, "soo:{}:{}", admin, assigned)
+            }
+            // SR-TE Policy Color (type 0x03, sub 0x0B) — RFC 9012 / draft-ietf-idr-segment-routing-te-policy
+            (0x03, 0x0B) => {
+                let color = u32::from_be_bytes([self.value[2], self.value[3], self.value[4], self.value[5]]);
+                write!(f, "color:{}", color)
+            }
+            // VXLAN VNI (type 0x81/0x01, sub 0x0C)
+            (0x41, 0x0C) | (0x01, 0x0C) => {
+                let vni = u32::from_be_bytes([0, self.value[3], self.value[4], self.value[5]]);
+                write!(f, "vni:{}", vni)
             }
             _ => write!(f, "ext:0x{:02x}{:02x}:{}", self.type_high, self.type_low, hex::encode(self.value)),
         }
@@ -563,6 +603,9 @@ pub struct PathAttributes {
     pub tunnel_encap:         Option<Vec<TunnelEncapEntry>>,
     // RFC 9234: Only-to-Customer (type 35)
     pub only_to_customer:     Option<u32>,
+    // RFC 7752: BGP-LS NLRI (AFI=16388, SAFI=71)
+    pub bgpls_reach:          Option<BgpLsReachNlri>,
+    pub bgpls_unreach:        Option<BgpLsUnreachNlri>,
     pub unknown:              Vec<RawAttribute>,
 }
 
@@ -579,6 +622,129 @@ pub struct MpUnreachNlri {
     pub prefixes: Vec<Prefix>,
 }
 
+// ─── BGP-LS NLRI (RFC 7752) ───────────────────────────────────────────────────
+
+/// BGP-LS NLRI type codes (RFC 7752 §3.2)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BgpLsNlriType {
+    Node,
+    Link,
+    Ipv4Prefix,
+    Ipv6Prefix,
+    Unknown(u16),
+}
+
+impl From<u16> for BgpLsNlriType {
+    fn from(v: u16) -> Self {
+        match v {
+            1 => Self::Node,
+            2 => Self::Link,
+            3 => Self::Ipv4Prefix,
+            4 => Self::Ipv6Prefix,
+            _ => Self::Unknown(v),
+        }
+    }
+}
+
+/// Protocol-ID values (RFC 7752 §3.2 Table 2)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BgpLsProtocol {
+    IsIsLevel1,
+    IsIsLevel2,
+    Ospfv2,
+    Direct,
+    StaticConfig,
+    Ospfv3,
+    Unknown(u8),
+}
+
+impl From<u8> for BgpLsProtocol {
+    fn from(v: u8) -> Self {
+        match v {
+            1 => Self::IsIsLevel1,
+            2 => Self::IsIsLevel2,
+            3 => Self::Ospfv2,
+            4 => Self::Direct,
+            5 => Self::StaticConfig,
+            6 => Self::Ospfv3,
+            _ => Self::Unknown(v),
+        }
+    }
+}
+
+/// IGP router-id descriptor (flex encoding: 4/6/7/8 bytes)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RouterId {
+    pub bytes: Vec<u8>,
+}
+
+impl fmt::Display for RouterId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.bytes.len() {
+            4 => write!(f, "{}.{}.{}.{}", self.bytes[0], self.bytes[1], self.bytes[2], self.bytes[3]),
+            _ => write!(f, "{}", self.bytes.iter().map(|b| format!("{:02x}", b)).collect::<Vec<_>>().join(":")),
+        }
+    }
+}
+
+/// Node descriptor TLVs (RFC 7752 §3.2.1)
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct NodeDescriptor {
+    pub asn:        Option<u32>,
+    pub bgp_ls_id:  Option<u32>,
+    pub ospf_area:  Option<u32>,
+    pub igp_router: Option<RouterId>,
+}
+
+/// Link descriptor TLVs (RFC 7752 §3.2.2)
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct LinkDescriptor {
+    pub local_addr:  Option<IpAddr>,
+    pub remote_addr: Option<IpAddr>,
+    pub local_id:    Option<u32>,
+    pub remote_id:   Option<u32>,
+}
+
+/// A single decoded BGP-LS NLRI item
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum BgpLsNlri {
+    Node {
+        protocol:  BgpLsProtocol,
+        identifier: u64,
+        local_node: NodeDescriptor,
+    },
+    Link {
+        protocol:   BgpLsProtocol,
+        identifier: u64,
+        local_node: NodeDescriptor,
+        remote_node: NodeDescriptor,
+        link:       LinkDescriptor,
+    },
+    Prefix {
+        protocol:   BgpLsProtocol,
+        identifier: u64,
+        local_node: NodeDescriptor,
+        prefix:     Prefix,
+    },
+    Unknown {
+        nlri_type: u16,
+        data:      Vec<u8>,
+    },
+}
+
+/// BGP-LS reachability NLRI carried in MP_REACH (AFI=16388, SAFI=71)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BgpLsReachNlri {
+    pub next_hop: Option<IpAddr>,
+    pub nlris:    Vec<BgpLsNlri>,
+}
+
+/// BGP-LS withdrawal NLRI carried in MP_UNREACH (AFI=16388, SAFI=71)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BgpLsUnreachNlri {
+    pub nlris: Vec<BgpLsNlri>,
+}
+
 // ─── BGP UPDATE ───────────────────────────────────────────────────────────────
 
 /// Parsed BGP UPDATE message
@@ -586,9 +752,13 @@ pub struct MpUnreachNlri {
 pub struct BgpUpdate {
     /// Prefixes being withdrawn (IPv4 unicast NLRI, or via MP_UNREACH)
     pub withdrawn: Vec<Prefix>,
+    /// Parallel path_ids for withdrawn — Some(id) when Add-Path active (RFC 7911)
+    pub withdrawn_path_ids: Vec<Option<u32>>,
     pub attributes: PathAttributes,
     /// Prefixes being announced (IPv4 unicast NLRI, or via MP_REACH)
     pub announced: Vec<Prefix>,
+    /// Parallel path_ids for announced — Some(id) when Add-Path active (RFC 7911)
+    pub announced_path_ids: Vec<Option<u32>>,
 }
 
 impl BgpUpdate {
@@ -598,6 +768,30 @@ impl BgpUpdate {
             && self.announced.is_empty()
             && self.attributes.mp_reach.is_none()
             && self.attributes.mp_unreach.as_ref().map_or(true, |u| u.prefixes.is_empty())
+    }
+
+    /// Returns (prefix, path_id) pairs for all announced prefixes across IPv4 and MP_REACH.
+    pub fn all_announced_with_path_id(&self) -> Vec<(&Prefix, Option<u32>)> {
+        let mut out: Vec<(&Prefix, Option<u32>)> = self.announced.iter()
+            .zip(self.announced_path_ids.iter().chain(std::iter::repeat(&None)))
+            .map(|(p, id)| (p, *id))
+            .collect();
+        if let Some(mp) = &self.attributes.mp_reach {
+            out.extend(mp.prefixes.iter().map(|p| (p, None)));
+        }
+        out
+    }
+
+    /// Returns (prefix, path_id) pairs for all withdrawn prefixes across IPv4 and MP_UNREACH.
+    pub fn all_withdrawn_with_path_id(&self) -> Vec<(&Prefix, Option<u32>)> {
+        let mut out: Vec<(&Prefix, Option<u32>)> = self.withdrawn.iter()
+            .zip(self.withdrawn_path_ids.iter().chain(std::iter::repeat(&None)))
+            .map(|(p, id)| (p, *id))
+            .collect();
+        if let Some(mp) = &self.attributes.mp_unreach {
+            out.extend(mp.prefixes.iter().map(|p| (p, None)));
+        }
+        out
     }
 
     pub fn all_announced(&self) -> Vec<&Prefix> {

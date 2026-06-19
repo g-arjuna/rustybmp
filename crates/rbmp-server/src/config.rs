@@ -10,13 +10,17 @@ fn default_true() -> bool { true }
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Config {
     #[serde(default)]
-    pub bmp:   BmpConfig,
+    pub bmp:      BmpConfig,
     #[serde(default)]
-    pub http:  HttpConfig,
+    pub http:     HttpConfig,
     #[serde(default)]
-    pub store: StoreConfig,
+    pub store:    StoreConfig,
     #[serde(default)]
-    pub log:   LogConfig,
+    pub log:      LogConfig,
+    #[serde(default)]
+    pub rpki:     RpkiConfig,
+    #[serde(default)]
+    pub registry: SpeakerRegistry,
 }
 
 impl Config {
@@ -109,4 +113,46 @@ pub struct LogConfig {
     /// "json" | "pretty" (default)
     #[serde(default)]
     pub format: String,
+}
+
+/// A known BMP speaker with optional metadata
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct SpeakerEntry {
+    pub addr:     String,
+    #[serde(default)]
+    pub hostname: String,
+    #[serde(default)]
+    pub vendor:   String,
+    #[serde(default)]
+    pub site:     String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+pub struct SpeakerRegistry {
+    #[serde(default)]
+    pub speakers: Vec<SpeakerEntry>,
+}
+
+impl SpeakerRegistry {
+    pub fn lookup(&self, addr: &str) -> Option<&SpeakerEntry> {
+        self.speakers.iter().find(|e| e.addr == addr)
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct RpkiConfig {
+    /// Enable RPKI RTR client and route annotation
+    #[serde(default)]
+    pub enabled: bool,
+    /// RTR server address (e.g. "127.0.0.1:3323" for Routinator)
+    #[serde(default = "default_rtr_addr")]
+    pub rtr_addr: String,
+}
+
+fn default_rtr_addr() -> String { "127.0.0.1:3323".into() }
+
+impl Default for RpkiConfig {
+    fn default() -> Self {
+        Self { enabled: false, rtr_addr: default_rtr_addr() }
+    }
 }

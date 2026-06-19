@@ -1,0 +1,20 @@
+[package]
+name        = "rbmp-enrichment"
+description = "RPKI RTR client, VRP cache, and route annotation for rustybmp"
+version.workspace   = true
+edition.workspace   = true
+authors.workspace   = true
+license.workspace   = true
+rust-version.workspace = true
+
+[dependencies]
+rbmp-core    = { workspace = true }
+tokio        = { workspace = true }
+tokio-util   = { workspace = true }
+ipnet        = { workspace = true }
+serde        = { workspace = true }
+serde_json   = { workspace = true }
+anyhow       = { workspace = true }
+tracing      = { workspace = true }
+chrono       = { workspace = true }
+bytes        = { workspace = true }

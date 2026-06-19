@@ -4,6 +4,7 @@ members = [
     "crates/rbmp-rib",
     "crates/rbmp-store",
     "crates/rbmp-server",
+    "crates/rbmp-enrichment",
 ]
 resolver = "2"
 
@@ -63,9 +64,10 @@ smallvec     = { version = "1", features = ["serde"] }
 indexmap     = { version = "2", features = ["serde"] }
 
 # workspace crates
-rbmp-core    = { path = "crates/rbmp-core" }
-rbmp-rib     = { path = "crates/rbmp-rib" }
-rbmp-store   = { path = "crates/rbmp-store" }
+rbmp-core        = { path = "crates/rbmp-core" }
+rbmp-rib         = { path = "crates/rbmp-rib" }
+rbmp-store       = { path = "crates/rbmp-store" }
+rbmp-enrichment  = { path = "crates/rbmp-enrichment" }
 
 [profile.dev]
 opt-level       = 1

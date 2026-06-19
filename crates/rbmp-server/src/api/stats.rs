@@ -28,3 +28,12 @@ pub async fn as_origins(
         "origin_asns": rows.into_iter().map(|(asn, cnt)| json!({"asn": asn, "prefix_count": cnt})).collect::<Vec<_>>()
     })))
 }
+
+pub async fn rpki_stats(
+    State(state): State<AppState>,
+) -> Json<Value> {
+    Json(json!({
+        "vrp_count":  state.enrichment.vrp_count(),
+        "rtr_serial": state.enrichment.rtr_serial(),
+    }))
+}

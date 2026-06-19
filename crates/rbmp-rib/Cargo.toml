@@ -19,3 +19,4 @@ tracing     = { workspace = true }
 indexmap    = { workspace = true }
 ipnet       = { workspace = true }
 tokio       = { workspace = true }
+metrics     = { workspace = true }

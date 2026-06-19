@@ -10,16 +10,22 @@ use tower_http::cors::CorsLayer;
 use rbmp_rib::RibManager;
 use rbmp_store::RouteStore;
 use rbmp_store::query::QueryEngine;
+use rbmp_enrichment::EnrichmentEngine;
 use tokio::sync::broadcast;
 use rbmp_rib::event::RibEvent;
+use crate::config::SpeakerRegistry;
+use metrics_exporter_prometheus::PrometheusHandle;
 
 /// Shared application state for all HTTP handlers
 #[derive(Clone)]
 pub struct AppState {
-    pub rib:     Arc<tokio::sync::RwLock<RibManager>>,
-    pub store:   Arc<std::sync::Mutex<RouteStore>>,
-    pub queries: Arc<QueryEngine>,
-    pub events:  broadcast::Sender<RibEvent>,
+    pub rib:        Arc<tokio::sync::RwLock<RibManager>>,
+    pub store:      Arc<std::sync::Mutex<RouteStore>>,
+    pub queries:    Arc<QueryEngine>,
+    pub events:     broadcast::Sender<RibEvent>,
+    pub enrichment: Arc<EnrichmentEngine>,
+    pub registry:   Arc<SpeakerRegistry>,
+    pub prom:       PrometheusHandle,
 }
 
 /// Build the Axum router with all API routes
@@ -42,6 +48,8 @@ pub fn build_router(state: AppState) -> Router {
         // Analytics
         .route("/api/analytics/churn", get(stats::top_churn))
         .route("/api/analytics/origins", get(stats::as_origins))
+        // RPKI
+        .route("/api/rpki/stats", get(stats::rpki_stats))
         // Real-time event stream (SSE)
         .route("/api/events",          get(events::sse_handler))
         // State

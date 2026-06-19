@@ -1836,6 +1836,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "rbmp-enrichment"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bytes",
+ "chrono",
+ "ipnet",
+ "rbmp-core",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-util",
+ "tracing",
+]
+
+[[package]]
 name = "rbmp-rib"
 version = "0.1.0"
 dependencies = [
@@ -1843,6 +1859,7 @@ dependencies = [
  "dashmap",
  "indexmap",
  "ipnet",
+ "metrics",
  "parking_lot",
  "rbmp-core",
  "serde",
@@ -1866,6 +1883,7 @@ dependencies = [
  "metrics",
  "metrics-exporter-prometheus",
  "rbmp-core",
+ "rbmp-enrichment",
  "rbmp-rib",
  "rbmp-store",
  "serde",
@@ -1890,6 +1908,7 @@ dependencies = [
  "anyhow",
  "chrono",
  "duckdb",
+ "metrics",
  "rbmp-core",
  "rbmp-rib",
  "serde",

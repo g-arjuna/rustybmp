@@ -5,6 +5,53 @@ use crate::{Error, Result};
 use super::types::{Afi, Prefix, RouteDistinguisher};
 use smallvec::SmallVec;
 
+/// Decode length-prefixed NLRI with optional Add-Path path_id (RFC 7911).
+/// When `add_path` is true, each entry is: path_id(4) + prefix_len(1) + prefix_bytes.
+/// When false, degrades to standard decode_nlri behaviour (path_id = None).
+/// Returns Vec<(Prefix, Option<u32>)> — path_id is None when add_path is false.
+pub fn decode_nlri_with_path_id(buf: &mut impl Buf, afi: Afi, add_path: bool) -> Result<Vec<(Prefix, Option<u32>)>> {
+    let mut prefixes = Vec::new();
+    while buf.remaining() > 0 {
+        let path_id = if add_path {
+            if buf.remaining() < 4 {
+                return Err(Error::UnexpectedEof { needed: 4, have: buf.remaining() });
+            }
+            Some(buf.get_u32())
+        } else {
+            None
+        };
+        let prefix_len = buf.get_u8();
+        let octets = (prefix_len as usize + 7) / 8;
+        if buf.remaining() < octets {
+            return Err(Error::UnexpectedEof { needed: octets, have: buf.remaining() });
+        }
+        let max_bits = match afi { Afi::Ipv6 => 128, _ => 32 };
+        if prefix_len > max_bits {
+            return Err(Error::InvalidPrefixLen { prefix_len, afi: afi.as_u16() });
+        }
+        let prefix = match afi {
+            Afi::Ipv6 => {
+                let mut addr = [0u8; 16];
+                let chunk = buf.copy_to_bytes(octets);
+                addr[..octets].copy_from_slice(&chunk);
+                let net = Ipv6Net::new(Ipv6Addr::from(addr), prefix_len)
+                    .map_err(|_| Error::InvalidPrefixLen { prefix_len, afi: afi.as_u16() })?;
+                Prefix::V6(net.trunc())
+            }
+            _ => {
+                let mut addr = [0u8; 4];
+                let chunk = buf.copy_to_bytes(octets);
+                addr[..octets].copy_from_slice(&chunk);
+                let net = Ipv4Net::new(Ipv4Addr::from(addr), prefix_len)
+                    .map_err(|_| Error::InvalidPrefixLen { prefix_len, afi: afi.as_u16() })?;
+                Prefix::V4(net.trunc())
+            }
+        };
+        prefixes.push((prefix, path_id));
+    }
+    Ok(prefixes)
+}
+
 /// Decode length-prefixed NLRI from a byte buffer.
 /// Each entry is: 1 byte prefix_len, then ceil(prefix_len/8) prefix bytes.
 /// afi selects IPv4 vs IPv6 interpretation.

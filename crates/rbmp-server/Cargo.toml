@@ -12,9 +12,10 @@ name = "rustybmp"
 path = "src/main.rs"
 
 [dependencies]
-rbmp-core   = { workspace = true }
-rbmp-rib    = { workspace = true }
-rbmp-store  = { workspace = true }
+rbmp-core        = { workspace = true }
+rbmp-rib         = { workspace = true }
+rbmp-store       = { workspace = true }
+rbmp-enrichment  = { workspace = true }
 
 # async
 tokio       = { workspace = true }

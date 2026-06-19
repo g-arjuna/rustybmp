@@ -3,6 +3,7 @@ use std::net::IpAddr;
 use chrono::Utc;
 use tokio::sync::broadcast;
 use tracing::{info, warn, debug};
+use metrics::counter;
 use rbmp_core::bmp::types::{BmpMessage, BmpPayload};
 use rbmp_core::bgp::types::BgpCapability;
 use crate::event::{RibEvent, RibEventPayload, RibEventPayload::*, RouteChange, RouteAction};
@@ -105,9 +106,10 @@ impl RibManager {
 
                 let rib = self.ribs.entry(peer_addr).or_default();
 
-                // Process withdrawals
-                for prefix in update.all_withdrawn() {
-                    rib.remove(rib_type, prefix);
+                // Process withdrawals — carry path_id for Add-Path compound key
+                for (prefix, path_id) in update.all_withdrawn_with_path_id() {
+                    rib.remove_with_path_id(rib_type, prefix, path_id);
+                    counter!("bgp_routes_withdrawn_total", "speaker" => speaker.to_string()).increment(1);
                     let ev = RouteChange {
                         action:      RouteAction::Withdraw,
                         peer_header: peer_header.clone(),
@@ -123,11 +125,12 @@ impl RibManager {
                     }).ok();
                 }
 
-                // Process announcements
-                for prefix in update.all_announced() {
+                // Process announcements — carry path_id from NLRI (RFC 7911)
+                for (prefix, path_id) in update.all_announced_with_path_id() {
+                    counter!("bgp_routes_announced_total", "speaker" => speaker.to_string()).increment(1);
                     let entry = RibEntry {
                         prefix:      prefix.clone(),
-                        path_id:     None, // path_id parsing from NLRI deferred to RV2
+                        path_id,
                         attributes:  update.attributes.clone(),
                         received_at: now,
                         peer_addr,
@@ -135,6 +138,10 @@ impl RibManager {
                         is_best:     true,
                     };
                     rib.insert(rib_type, entry);
+                    // Recompute best-path when Add-Path may produce multiple paths
+                    if path_id.is_some() {
+                        rib.recompute_best_path(rib_type, prefix);
+                    }
                     let ev = RouteChange {
                         action:      RouteAction::Announce,
                         peer_header: peer_header.clone(),

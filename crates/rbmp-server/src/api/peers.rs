@@ -4,15 +4,22 @@ use super::AppState;
 
 pub async fn list_speakers(State(state): State<AppState>) -> Json<Value> {
     let rib = state.rib.read().await;
-    let speakers: Vec<Value> = rib.speakers().iter().map(|s| json!({
-        "addr":         s.speaker_addr.to_string(),
-        "sys_name":     s.sys_name,
-        "sys_descr":    s.sys_descr,
-        "connected_at": s.connected_at.to_rfc3339(),
-        "peer_count":   s.peer_count(),
-        "peers_up":     s.up_peer_count(),
-        "total_routes": s.total_routes(),
-    })).collect();
+    let speakers: Vec<Value> = rib.speakers().iter().map(|s| {
+        let addr_str = s.speaker_addr.to_string();
+        let meta     = state.registry.lookup(&addr_str);
+        json!({
+            "addr":         addr_str,
+            "hostname":     meta.map(|m| m.hostname.as_str()).unwrap_or(""),
+            "vendor":       meta.map(|m| m.vendor.as_str()).unwrap_or(""),
+            "site":         meta.map(|m| m.site.as_str()).unwrap_or(""),
+            "sys_name":     s.sys_name,
+            "sys_descr":    s.sys_descr,
+            "connected_at": s.connected_at.to_rfc3339(),
+            "peer_count":   s.peer_count(),
+            "peers_up":     s.up_peer_count(),
+            "total_routes": s.total_routes(),
+        })
+    }).collect();
     Json(json!({ "speakers": speakers, "count": speakers.len() }))
 }
 
@@ -23,8 +30,14 @@ pub async fn get_speaker(
     let rib = state.rib.read().await;
     let ip  = addr.parse().map_err(|_| StatusCode::BAD_REQUEST)?;
     match rib.speaker(ip) {
-        Some(s) => Ok(Json(json!({
-            "addr":         s.speaker_addr.to_string(),
+        Some(s) => {
+            let addr_str = s.speaker_addr.to_string();
+            let meta     = state.registry.lookup(&addr_str);
+            Ok(Json(json!({
+            "addr":         addr_str,
+            "hostname":     meta.map(|m| m.hostname.as_str()).unwrap_or(""),
+            "vendor":       meta.map(|m| m.vendor.as_str()).unwrap_or(""),
+            "site":         meta.map(|m| m.site.as_str()).unwrap_or(""),
             "sys_name":     s.sys_name,
             "sys_descr":    s.sys_descr,
             "connected_at": s.connected_at.to_rfc3339(),
@@ -36,7 +49,8 @@ pub async fn get_speaker(
                 "uptime_secs": p.uptime_secs(),
                 "flaps":   p.flap_count,
             })).collect::<Vec<_>>(),
-        }))),
+        })))
+        }
         None => Err(StatusCode::NOT_FOUND),
     }
 }

@@ -206,7 +206,7 @@ fn parse_route_monitoring(buf: &[u8]) -> Result<BmpPayload> {
     if rest.len() < 19 {
         return Err(Error::UnexpectedEof { needed: 19, have: rest.len() });
     }
-    let update = parse_bgp_update(rest)?;
+    let update = parse_bgp_update(rest, false)?;
     Ok(BmpPayload::RouteMonitoring { peer_header, update })
 }
 
