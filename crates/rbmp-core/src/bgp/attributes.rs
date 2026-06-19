@@ -3,6 +3,9 @@ use bytes::Buf;
 use crate::{Error, Result};
 use super::types::*;
 use super::nlri::{decode_nlri, decode_labeled_nlri, decode_vpn_nlri, decode_next_hops};
+use super::evpn::decode_evpn_nlri;
+use super::flowspec::{decode_flowspec_nlri, FlowspecNlri};
+use super::srv6::parse_prefix_sid;
 
 // ─── Attribute flag bits ──────────────────────────────────────────────────────
 const FLAG_OPTIONAL:   u8 = 0x80;
@@ -96,11 +99,17 @@ pub fn parse_path_attributes(mut buf: impl Buf) -> Result<PathAttributes> {
             }
             // Type 14: MP_REACH_NLRI (RFC 4760)
             14 if attr_len >= 4 => {
-                attrs.mp_reach = Some(parse_mp_reach(attr_data.as_ref())?);
+                let (mp, evpn_reach, flowspec_reach) = parse_mp_reach(attr_data.as_ref())?;
+                attrs.mp_reach       = Some(mp);
+                attrs.evpn_reach     = evpn_reach;
+                attrs.flowspec_reach = flowspec_reach;
             }
             // Type 15: MP_UNREACH_NLRI (RFC 4760)
             15 if attr_len >= 3 => {
-                attrs.mp_unreach = Some(parse_mp_unreach(attr_data.as_ref())?);
+                let (mp, evpn_unreach, flowspec_unreach) = parse_mp_unreach(attr_data.as_ref())?;
+                attrs.mp_unreach       = Some(mp);
+                attrs.evpn_unreach     = evpn_unreach;
+                attrs.flowspec_unreach = flowspec_unreach;
             }
             // Type 16: EXTENDED COMMUNITIES (RFC 4360)
             16 => {
@@ -121,16 +130,28 @@ pub fn parse_path_attributes(mut buf: impl Buf) -> Result<PathAttributes> {
                 let id  = Ipv4Addr::from([attr_buf[4], attr_buf[5], attr_buf[6], attr_buf[7]]);
                 attrs.as4_aggregator = Some((asn, id));
             }
+            // Type 23: TUNNEL_ENCAPSULATION (RFC 9012)
+            23 => {
+                attrs.tunnel_encap = Some(parse_tunnel_encap(attr_data.as_ref()));
+            }
             // Type 32: LARGE_COMMUNITY (RFC 8092)
             32 => {
                 let mut cb = attr_data.as_ref();
                 while cb.len() >= 12 {
-                    let ga = u32::from_be_bytes([cb[0], cb[1], cb[2], cb[3]]);
+                    let ga  = u32::from_be_bytes([cb[0], cb[1], cb[2], cb[3]]);
                     let ld1 = u32::from_be_bytes([cb[4], cb[5], cb[6], cb[7]]);
                     let ld2 = u32::from_be_bytes([cb[8], cb[9], cb[10], cb[11]]);
                     attrs.large_communities.push(LargeCommunity { global_admin: ga, local_data_1: ld1, local_data_2: ld2 });
                     cb = &cb[12..];
                 }
+            }
+            // Type 35: ONLY_TO_CUSTOMER (RFC 9234) — 4-byte AS number
+            35 if attr_len == 4 => {
+                attrs.only_to_customer = Some(u32::from_be_bytes(attr_buf[..4].try_into().unwrap()));
+            }
+            // Type 40: BGP_PREFIX_SID (RFC 8669)
+            40 => {
+                attrs.prefix_sid = parse_prefix_sid(attr_data.as_ref()).ok();
             }
             // Everything else preserved as raw
             _ => {
@@ -180,41 +201,136 @@ pub fn parse_as_path(mut buf: &[u8], four_byte: bool) -> Result<AsPath> {
     Ok(AsPath(segments))
 }
 
-fn parse_mp_reach(buf: &[u8]) -> Result<MpReachNlri> {
+fn parse_mp_reach(buf: &[u8]) -> Result<(MpReachNlri, Option<EvpnReachNlri>, Option<Vec<FlowspecNlri>>)> {
     if buf.len() < 4 {
         return Err(Error::UnexpectedEof { needed: 4, have: buf.len() });
     }
-    let afi  = u16::from_be_bytes([buf[0], buf[1]]);
-    let safi = buf[2];
+    let afi      = u16::from_be_bytes([buf[0], buf[1]]);
+    let safi     = buf[2];
     let afi_safi = AfiSafi::new(afi, safi);
-    let mut cur = std::io::Cursor::new(&buf[3..]);
+    let mut cur  = std::io::Cursor::new(&buf[3..]);
     let next_hops = decode_next_hops(&mut cur, afi_safi.afi)?;
-    // 1 byte SNPA (should be 0)
     if cur.remaining() < 1 {
         return Err(Error::UnexpectedEof { needed: 1, have: cur.remaining() });
     }
     let _snpa = cur.get_u8();
-    let prefixes = dispatch_nlri_decode(&mut cur, afi_safi)?;
-    Ok(MpReachNlri { afi_safi, next_hops, prefixes })
+    let remaining = cur.chunk().to_vec();
+
+    let (prefixes, evpn_reach, flowspec_reach) = match afi_safi.safi {
+        Safi::Evpn => {
+            let routes = decode_evpn_nlri(&remaining).unwrap_or_default();
+            let evpn   = EvpnReachNlri { next_hops: next_hops.clone(), routes };
+            (Vec::new(), Some(evpn), None)
+        }
+        Safi::Flowspec | Safi::FlowspecVpn => {
+            let ipv6 = matches!(afi_safi.afi, Afi::Ipv6);
+            let fs   = decode_flowspec_nlri(&remaining, ipv6).unwrap_or_default();
+            (Vec::new(), None, Some(fs))
+        }
+        Safi::Unicast | Safi::Multicast => {
+            let p = decode_nlri(&mut std::io::Cursor::new(&remaining), afi_safi.afi)?;
+            (p, None, None)
+        }
+        Safi::LabeledUnicast => {
+            let p = decode_labeled_nlri(&mut std::io::Cursor::new(&remaining), afi_safi.afi)?;
+            (p, None, None)
+        }
+        Safi::MplsVpn => {
+            let p = decode_vpn_nlri(&mut std::io::Cursor::new(&remaining), afi_safi.afi)?;
+            (p, None, None)
+        }
+        _ => (Vec::new(), None, None),
+    };
+
+    Ok((MpReachNlri { afi_safi, next_hops, prefixes }, evpn_reach, flowspec_reach))
 }
 
-fn parse_mp_unreach(buf: &[u8]) -> Result<MpUnreachNlri> {
+fn parse_mp_unreach(buf: &[u8]) -> Result<(MpUnreachNlri, Option<EvpnUnreachNlri>, Option<Vec<FlowspecNlri>>)> {
     if buf.len() < 3 {
         return Err(Error::UnexpectedEof { needed: 3, have: buf.len() });
     }
-    let afi  = u16::from_be_bytes([buf[0], buf[1]]);
-    let safi = buf[2];
+    let afi      = u16::from_be_bytes([buf[0], buf[1]]);
+    let safi     = buf[2];
     let afi_safi = AfiSafi::new(afi, safi);
-    let mut cur = std::io::Cursor::new(&buf[3..]);
-    let prefixes = dispatch_nlri_decode(&mut cur, afi_safi)?;
-    Ok(MpUnreachNlri { afi_safi, prefixes })
+    let remaining = &buf[3..];
+
+    let (prefixes, evpn_unreach, flowspec_unreach) = match afi_safi.safi {
+        Safi::Evpn => {
+            let routes = decode_evpn_nlri(remaining).unwrap_or_default();
+            (Vec::new(), Some(EvpnUnreachNlri { routes }), None)
+        }
+        Safi::Flowspec | Safi::FlowspecVpn => {
+            let ipv6 = matches!(afi_safi.afi, Afi::Ipv6);
+            let fs   = decode_flowspec_nlri(remaining, ipv6).unwrap_or_default();
+            (Vec::new(), None, Some(fs))
+        }
+        Safi::Unicast | Safi::Multicast => {
+            let p = decode_nlri(&mut std::io::Cursor::new(remaining), afi_safi.afi)?;
+            (p, None, None)
+        }
+        Safi::LabeledUnicast => {
+            let p = decode_labeled_nlri(&mut std::io::Cursor::new(remaining), afi_safi.afi)?;
+            (p, None, None)
+        }
+        Safi::MplsVpn => {
+            let p = decode_vpn_nlri(&mut std::io::Cursor::new(remaining), afi_safi.afi)?;
+            (p, None, None)
+        }
+        _ => (Vec::new(), None, None),
+    };
+
+    Ok((MpUnreachNlri { afi_safi, prefixes }, evpn_unreach, flowspec_unreach))
 }
 
-fn dispatch_nlri_decode(buf: &mut impl Buf, afi_safi: AfiSafi) -> Result<Vec<Prefix>> {
-    match afi_safi.safi {
-        Safi::Unicast | Safi::Multicast => decode_nlri(buf, afi_safi.afi),
-        Safi::LabeledUnicast            => decode_labeled_nlri(buf, afi_safi.afi),
-        Safi::MplsVpn                   => decode_vpn_nlri(buf, afi_safi.afi),
-        _                               => decode_nlri(buf, afi_safi.afi), // best-effort
+fn parse_tunnel_encap(buf: &[u8]) -> Vec<TunnelEncapEntry> {
+    let mut entries = Vec::new();
+    let mut pos = 0;
+    while pos + 4 <= buf.len() {
+        let tunnel_type = u16::from_be_bytes([buf[pos], buf[pos+1]]);
+        let tlv_len     = u16::from_be_bytes([buf[pos+2], buf[pos+3]]) as usize;
+        pos += 4;
+        if pos + tlv_len > buf.len() { break; }
+        // Sub-TLVs inside: parse for endpoint (type 1) and color (type 9)
+        let sub_buf = &buf[pos..pos+tlv_len];
+        pos += tlv_len;
+        let (endpoint, color) = parse_tunnel_subtlvs(sub_buf);
+        entries.push(TunnelEncapEntry {
+            tunnel_type,
+            tunnel_type_name: tunnel_type_name(tunnel_type).to_string(),
+            endpoint,
+            color,
+        });
     }
+    entries
+}
+
+fn parse_tunnel_subtlvs(buf: &[u8]) -> (Option<IpAddr>, Option<u32>) {
+    let mut endpoint = None;
+    let mut color    = None;
+    let mut pos = 0;
+    while pos + 2 <= buf.len() {
+        let sub_type = buf[pos];
+        let sub_len  = buf[pos+1] as usize;
+        pos += 2;
+        if pos + sub_len > buf.len() { break; }
+        let data = &buf[pos..pos+sub_len];
+        pos += sub_len;
+        match sub_type {
+            1 if data.len() == 4 => {
+                endpoint = Some(IpAddr::V4(std::net::Ipv4Addr::from([data[0], data[1], data[2], data[3]])));
+            }
+            1 if data.len() == 16 => {
+                let mut b = [0u8; 16]; b.copy_from_slice(data);
+                endpoint = Some(IpAddr::V6(std::net::Ipv6Addr::from(b)));
+            }
+            9 if data.len() >= 4 => {
+                // Color sub-TLV: flags(1) + reserved(1) + color(4) — skip flags+reserved
+                if data.len() >= 6 {
+                    color = Some(u32::from_be_bytes([data[2], data[3], data[4], data[5]]));
+                }
+            }
+            _ => {}
+        }
+    }
+    (endpoint, color)
 }

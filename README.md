@@ -60,7 +60,7 @@ Routers (RFC 7854 BMP) ──TCP──▶ BMP Receiver (rbmp-server)
 
 ### BMP Protocol (RFC 7854)
 - [x] Route Monitoring (BGP UPDATE encapsulation)
-- [x] Statistics Report — all 20 counter types
+- [x] Statistics Report — 38 counter types (RFC 7854 + RFC 9972)
 - [x] Peer Up / Peer Down with BGP OPEN capture
 - [x] Initiation / Termination messages
 - [x] Route Mirroring (RFC 8671)
@@ -80,12 +80,15 @@ Routers (RFC 7854 BMP) ──TCP──▶ BMP Receiver (rbmp-server)
 - [x] MPLS labeled unicast (RFC 3107 / RFC 8277)
 - [x] L3VPN prefixes (RFC 4364) with Route Distinguisher
 - [x] 4-byte ASN (RFC 6793)
-- [x] Add-Path capability (RFC 7911)
+- [x] Add-Path capability + RIB (RFC 7911)
+- [x] BGP Prefix-SID (RFC 8669, type 40) — Label Index, Originator SRGB, SRv6 L3 Service
+- [x] Only-to-Customer / BGP Role (RFC 9234, type 35 + cap 9)
+- [x] Tunnel Encapsulation (RFC 9012, type 23)
 - [x] Graceful Restart capability (RFC 4724)
 - [x] End-of-RIB marker detection (RFC 4724)
 - [x] AS path loop / prepending detection
-- [ ] EVPN (RFC 7432) — planned
-- [ ] BGP Flowspec (RFC 5575) — planned
+- [x] EVPN (RFC 7432) — all 5 route types (types 1-5)
+- [x] BGP Flowspec (RFC 5575/8955) — component parser, numeric + bitmask ops
 - [ ] BGP-LS (RFC 7752 via BMP) — planned
 - [ ] RPKI ROV via RTR (RFC 6810) — planned
 
@@ -180,8 +183,8 @@ r.close()
 - [ ] RPKI validation (RTR client)
 - [ ] Route leak detection
 - [ ] BGP hijack alerts
-- [ ] EVPN support
-- [ ] Flowspec support
+- [x] EVPN support (RFC 7432)
+- [x] Flowspec support (RFC 5575/8955)
 
 ### Phase 4 — Scale
 - [ ] Multi-instance clustering
@@ -209,6 +212,13 @@ r.close()
 | RFC 7911 | Advertisement of Multiple Paths in BGP |
 | RFC 3107 | Carrying Label Information in BGP-4 |
 | RFC 4364 | BGP/MPLS IP Virtual Private Networks |
+| RFC 9972 | Advanced BMP Statistics (May 2026) — types 18-38 |
+| RFC 7432 | BGP MPLS-Based Ethernet VPN (EVPN) |
+| RFC 5575 | Dissemination of Flow Specification Rules (Flowspec) |
+| RFC 8955 | Dissemination of Flow Specification Rules for IPv6 |
+| RFC 8669 | BGP Prefix Segment Identifiers (Prefix-SID) |
+| RFC 9234 | Route Leak Prevention and Detection (OTC + BGP Role) |
+| RFC 9012 | BGP Tunnel Encapsulation Attribute |
 
 ---
 

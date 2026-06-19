@@ -4,21 +4,25 @@ use anyhow::Result;
 use bytes::{Buf, BytesMut};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::{broadcast, mpsc};
+use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn, error, debug, instrument};
 use chrono::Utc;
 use rbmp_core::bmp::parser::{parse_bmp_message, DEFAULT_MAX_FRAME};
-use rbmp_core::bmp::types::BmpMessage;
+use rbmp_core::bmp::types::{BmpMessage, BmpPayload};
+use crate::archive::BmpArchive;
 use crate::config::BmpConfig;
+use crate::governor::ShedSignal;
 
 const BMP_HEADER_LEN: usize = 6;
 
-/// Start the BMP TCP receiver. Returns a channel of parsed BmpMessages.
+/// Start the BMP TCP receiver.
 pub async fn run_bmp_receiver(
-    cfg:    BmpConfig,
-    cancel: CancellationToken,
-    tx:     mpsc::Sender<BmpMessage>,
+    cfg:     BmpConfig,
+    cancel:  CancellationToken,
+    tx:      mpsc::Sender<BmpMessage>,
+    shed:    ShedSignal,
+    archive: Arc<BmpArchive>,
 ) -> Result<()> {
     let listener = TcpListener::bind(&cfg.listen_addr).await?;
     info!(addr = %cfg.listen_addr, "BMP receiver listening");
@@ -32,11 +36,15 @@ pub async fn run_bmp_receiver(
             result = listener.accept() => {
                 match result {
                     Ok((stream, peer)) => {
-                        let tx2    = tx.clone();
-                        let cfg2   = cfg.clone();
-                        let cancel2 = cancel.clone();
+                        let tx2      = tx.clone();
+                        let cfg2     = cfg.clone();
+                        let cancel2  = cancel.clone();
+                        let shed2    = shed.clone();
+                        let archive2 = Arc::clone(&archive);
                         tokio::spawn(async move {
-                            if let Err(e) = handle_connection(stream, peer, cfg2, cancel2, tx2).await {
+                            if let Err(e) = handle_connection(
+                                stream, peer, cfg2, cancel2, tx2, shed2, archive2,
+                            ).await {
                                 warn!(%peer, error = %e, "BMP connection error");
                             }
                         });
@@ -51,13 +59,15 @@ pub async fn run_bmp_receiver(
     Ok(())
 }
 
-#[instrument(skip(stream, cfg, cancel, tx), fields(%peer))]
+#[instrument(skip(stream, cfg, cancel, tx, shed, archive), fields(%peer))]
 async fn handle_connection(
     mut stream: TcpStream,
     peer:       SocketAddr,
     cfg:        BmpConfig,
     cancel:     CancellationToken,
     tx:         mpsc::Sender<BmpMessage>,
+    shed:       ShedSignal,
+    archive:    Arc<BmpArchive>,
 ) -> Result<()> {
     info!("BMP speaker connected");
     let speaker_addr = peer.ip();
@@ -92,14 +102,29 @@ async fn handle_connection(
             let frame = buf.copy_to_bytes(frame_len);
             match parse_bmp_message(&frame, speaker_addr.into(), cfg.max_frame_bytes) {
                 Ok(payload) => {
+                    // Under pressure, drop low-value stats messages
+                    if cfg.shed_stats_on_pressure
+                        && shed.should_shed()
+                        && matches!(payload, BmpPayload::StatsReport { .. })
+                    {
+                        debug!("shedding StatsReport under backpressure");
+                        continue;
+                    }
+
                     let msg = BmpMessage {
                         id:           uuid::Uuid::new_v4(),
                         received_at:  Utc::now(),
                         speaker_addr: speaker_addr.into(),
                         payload,
                     };
+
+                    // Archive before forwarding (best-effort; errors are non-fatal)
+                    if let Err(e) = archive.append(&msg).await {
+                        warn!(error = %e, "Archive write failed");
+                    }
+
                     if tx.send(msg).await.is_err() {
-                        // Receiver dropped (shutdown)
+                        // Receiver dropped — clean shutdown
                         return Ok(());
                     }
                 }

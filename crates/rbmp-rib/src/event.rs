@@ -2,7 +2,7 @@ use std::net::IpAddr;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use rbmp_core::bgp::types::{PathAttributes, Prefix};
-use rbmp_core::bmp::types::{PeerHeader, RibType};
+use rbmp_core::bmp::types::{PeerHeader, RibType, StatEntry};
 
 /// Every state change emitted by the RIB engine
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -35,10 +35,10 @@ pub enum RibEventPayload {
     },
     /// Route change (announce or withdraw)
     RouteChange(RouteChange),
-    /// Statistics snapshot
+    /// Statistics snapshot (RFC 7854 + RFC 9972)
     Stats {
         peer_header: PeerHeader,
-        counters:    Vec<(String, u64)>,
+        counters:    Vec<StatEntry>,
     },
     /// End-of-RIB marker received
     EndOfRib {

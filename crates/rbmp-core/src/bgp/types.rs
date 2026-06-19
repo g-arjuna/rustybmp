@@ -3,6 +3,8 @@ use std::fmt;
 use ipnet::{Ipv4Net, Ipv6Net};
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
+use super::evpn::EvpnRoute;
+use super::flowspec::FlowspecNlri;
 
 // ─── AFI / SAFI ───────────────────────────────────────────────────────────────
 
@@ -227,7 +229,7 @@ impl AsPath {
         }).sum()
     }
 
-    /// Left-most (origin) ASN from the first SEQUENCE
+    /// Originating ASN: right-most ASN in the first SEQUENCE segment (the AS that originated the route)
     pub fn origin_asn(&self) -> Option<u32> {
         self.0.iter().find_map(|seg| match seg {
             AsPathSegment::Sequence(v) => v.last().copied(),
@@ -235,7 +237,7 @@ impl AsPath {
         })
     }
 
-    /// Originating ASN (right-most AS in the full AS_PATH)
+    /// First ASN: left-most ASN in the first SEQUENCE segment (the direct advertising neighbor)
     pub fn first_asn(&self) -> Option<u32> {
         self.0.iter().find_map(|seg| match seg {
             AsPathSegment::Sequence(v) => v.first().copied(),
@@ -417,6 +419,8 @@ pub enum BgpCapability {
     RouteRefresh,
     ExtendedNextHop { afi: Afi, safi: Safi, next_hop_afi: Afi },
     ExtendedMessage,
+    /// RFC 9234: role values 0=Provider, 1=RS, 2=RS-Client, 3=Customer, 4=Peer
+    BgpRole(u8),
     GracefulRestart { restart_time: u16, afi_safis: Vec<(AfiSafi, u8)> },
     FourByteAsn(u32),
     AddPath(Vec<(AfiSafi, u8)>),  // u8 = send(1), recv(2), both(3)
@@ -429,18 +433,93 @@ pub enum BgpCapability {
 impl BgpCapability {
     pub fn code(&self) -> u8 {
         match self {
-            Self::Multiprotocol(_)      => 1,
-            Self::RouteRefresh          => 2,
-            Self::ExtendedNextHop { .. }=> 5,
-            Self::ExtendedMessage       => 6,
-            Self::GracefulRestart { .. }=> 64,
-            Self::FourByteAsn(_)        => 65,
-            Self::AddPath(_)            => 69,
-            Self::EnhancedRouteRefresh  => 70,
+            Self::Multiprotocol(_)         => 1,
+            Self::RouteRefresh             => 2,
+            Self::ExtendedNextHop { .. }   => 5,
+            Self::ExtendedMessage          => 6,
+            Self::BgpRole(_)               => 9,
+            Self::GracefulRestart { .. }   => 64,
+            Self::FourByteAsn(_)           => 65,
+            Self::AddPath(_)               => 69,
+            Self::EnhancedRouteRefresh     => 70,
             Self::LongLivedGracefulRestart => 71,
-            Self::Fqdn { .. }           => 73,
-            Self::Unknown { code, .. }  => *code,
+            Self::Fqdn { .. }              => 73,
+            Self::Unknown { code, .. }     => *code,
         }
+    }
+}
+
+// ─── EVPN NLRI wrappers ───────────────────────────────────────────────────────
+
+/// EVPN NLRI carried in MP_REACH (AFI=25, SAFI=70)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EvpnReachNlri {
+    pub next_hops: Vec<IpAddr>,
+    pub routes:    Vec<EvpnRoute>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EvpnUnreachNlri {
+    pub routes: Vec<EvpnRoute>,
+}
+
+// ─── BGP Prefix-SID attribute (RFC 8669, type 40) ────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PrefixSid {
+    /// TLV type 1: label index (RFC 8669 §3.1)
+    pub label_index:      Option<u32>,
+    /// TLV type 3: originator SRGB — (flags, [(base, range)])
+    pub originator_srgb:  Option<(u16, Vec<(u32, u32)>)>,
+    /// TLV type 5: SRv6 L3 Service
+    pub srv6_l3_service:  Option<Srv6L3Service>,
+    /// Unrecognized TLVs preserved as (type, bytes)
+    pub raw_tlvs:         Vec<(u8, Vec<u8>)>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Srv6L3Service {
+    pub sub_sub_tlvs: Vec<Srv6SubSubTlv>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Srv6SubSubTlv {
+    pub sid:               [u8; 16],
+    pub sid_flags:         u8,
+    pub endpoint_behavior: u16,
+}
+
+// ─── Tunnel Encapsulation attribute (RFC 9012, type 23) ──────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TunnelEncapEntry {
+    pub tunnel_type:      u16,
+    pub tunnel_type_name: String,
+    pub endpoint:         Option<IpAddr>,
+    pub color:            Option<u32>,
+}
+
+pub fn tunnel_type_name(t: u16) -> &'static str {
+    match t {
+        1  => "l2tpv3-over-ip",
+        2  => "gre",
+        3  => "transmit-tunnel-endpoint",
+        4  => "ipsec-in-tunnel-mode",
+        5  => "ip-in-ip-with-ipsec",
+        6  => "mpls-in-ip-with-ipsec",
+        7  => "ip-in-ip",
+        8  => "vxlan",
+        9  => "nvgre",
+        10 => "mpls",
+        11 => "mpls-in-gre",
+        12 => "vxlan-gpe",
+        13 => "mpls-in-udp",
+        14 => "ipv6-tunnel",
+        15 => "sr-mpls",
+        16 => "geneve",
+        17 => "endpoint",
+        23 => "srv6",
+        _  => "unknown",
     }
 }
 
@@ -456,23 +535,35 @@ pub struct RawAttribute {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct PathAttributes {
-    pub origin:              Option<Origin>,
-    pub as_path:             Option<AsPath>,
-    pub next_hop:            Option<IpAddr>,
-    pub multi_exit_disc:     Option<u32>,
-    pub local_pref:          Option<u32>,
-    pub atomic_aggregate:    bool,
-    pub aggregator:          Option<(u32, Ipv4Addr)>,  // 4-byte ASN + BGP ID
-    pub communities:         Vec<StandardCommunity>,
+    pub origin:               Option<Origin>,
+    pub as_path:              Option<AsPath>,
+    pub next_hop:             Option<IpAddr>,
+    pub multi_exit_disc:      Option<u32>,
+    pub local_pref:           Option<u32>,
+    pub atomic_aggregate:     bool,
+    pub aggregator:           Option<(u32, Ipv4Addr)>,
+    pub communities:          Vec<StandardCommunity>,
     pub extended_communities: Vec<ExtendedCommunity>,
-    pub large_communities:   Vec<LargeCommunity>,
-    pub originator_id:       Option<Ipv4Addr>,
-    pub cluster_list:        Vec<Ipv4Addr>,
-    pub mp_reach:            Option<MpReachNlri>,
-    pub mp_unreach:          Option<MpUnreachNlri>,
-    pub as4_path:            Option<AsPath>,
-    pub as4_aggregator:      Option<(u32, Ipv4Addr)>,
-    pub unknown:             Vec<RawAttribute>,
+    pub large_communities:    Vec<LargeCommunity>,
+    pub originator_id:        Option<Ipv4Addr>,
+    pub cluster_list:         Vec<Ipv4Addr>,
+    pub mp_reach:             Option<MpReachNlri>,
+    pub mp_unreach:           Option<MpUnreachNlri>,
+    pub as4_path:             Option<AsPath>,
+    pub as4_aggregator:       Option<(u32, Ipv4Addr)>,
+    // RFC 7432: EVPN NLRI (AFI=25, SAFI=70)
+    pub evpn_reach:           Option<EvpnReachNlri>,
+    pub evpn_unreach:         Option<EvpnUnreachNlri>,
+    // RFC 5575/8955: Flowspec NLRI
+    pub flowspec_reach:       Option<Vec<FlowspecNlri>>,
+    pub flowspec_unreach:     Option<Vec<FlowspecNlri>>,
+    // RFC 8669: BGP Prefix-SID (type 40)
+    pub prefix_sid:           Option<PrefixSid>,
+    // RFC 9012: Tunnel Encapsulation (type 23)
+    pub tunnel_encap:         Option<Vec<TunnelEncapEntry>>,
+    // RFC 9234: Only-to-Customer (type 35)
+    pub only_to_customer:     Option<u32>,
+    pub unknown:              Vec<RawAttribute>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

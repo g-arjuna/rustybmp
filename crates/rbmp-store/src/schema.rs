@@ -51,14 +51,36 @@ CREATE TABLE IF NOT EXISTS speaker_events (
     reason          VARCHAR
 );
 
--- Statistics snapshots
+-- Statistics snapshots (RFC 7854 + RFC 9972)
 CREATE TABLE IF NOT EXISTS stats_events (
     id              UUID        NOT NULL,
     occurred_at     TIMESTAMPTZ NOT NULL,
     speaker_addr    VARCHAR     NOT NULL,
     peer_addr       VARCHAR     NOT NULL,
     counter_name    VARCHAR     NOT NULL,
-    counter_value   UBIGINT     NOT NULL
+    counter_value   UBIGINT     NOT NULL,
+    stat_type       USMALLINT,          -- raw RFC type code
+    afi             USMALLINT,          -- NULL for global stats
+    safi            UTINYINT            -- NULL for global stats
+);
+
+-- EVPN route events (RFC 7432)
+CREATE TABLE IF NOT EXISTS evpn_events (
+    id              UUID        NOT NULL,
+    occurred_at     TIMESTAMPTZ NOT NULL,
+    speaker_addr    VARCHAR     NOT NULL,
+    peer_addr       VARCHAR     NOT NULL,
+    peer_as         UINTEGER    NOT NULL,
+    action          VARCHAR     NOT NULL,   -- 'announce' | 'withdraw'
+    route_type      UTINYINT    NOT NULL,   -- 1-5
+    route_type_name VARCHAR     NOT NULL,
+    rd              VARCHAR,               -- route distinguisher
+    ethernet_tag    UINTEGER,
+    mac             VARCHAR,               -- for type 2
+    ip              VARCHAR,               -- for type 2/3/4/5
+    prefix_len      UTINYINT,              -- for type 5
+    mpls_label      UINTEGER,
+    esi_hex         VARCHAR                -- 10-byte ESI as hex string
 );
 
 -- Indexes for common query patterns

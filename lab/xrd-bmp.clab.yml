@@ -1,0 +1,54 @@
+name: xrd-bmp
+
+mgmt:
+  network: xrd-bmp-mgmt
+  ipv4-subnet: 172.20.30.0/24
+
+topology:
+  nodes:
+
+    # ── BMP collector (rustybmp) ────────────────────────────────────────────
+    rustybmp:
+      kind: linux
+      image: rustybmp:latest
+      binds:
+        - ./configs/rustybmp/rustybmp.toml:/etc/rustybmp/rustybmp.toml:ro
+        - ./data:/data
+      ports:
+        - "5000:5000"   # BMP
+        - "7878:7878"   # HTTP API
+      env:
+        RUST_LOG: info
+
+    # ── PE routers (Cisco XRd) ─────────────────────────────────────────────
+    pe1:
+      kind: cisco_xrd
+      image: ios-xr/xrd-control-plane:24.2.1
+      startup-config: configs/xrd/pe1.cfg
+      env:
+        XR_EVERY_BOOT_CONFIG: /etc/xrd/startup.cfg
+
+    pe2:
+      kind: cisco_xrd
+      image: ios-xr/xrd-control-plane:24.2.1
+      startup-config: configs/xrd/pe2.cfg
+      env:
+        XR_EVERY_BOOT_CONFIG: /etc/xrd/startup.cfg
+
+    # ── CE router (FRR) ────────────────────────────────────────────────────
+    ce1:
+      kind: linux
+      image: frrouting/frr:10.1.2
+      binds:
+        - ./configs/frr/frr.conf:/etc/frr/frr.conf:ro
+        - ./configs/frr/daemons:/etc/frr/daemons:ro
+
+  links:
+    # PE1 ↔ PE2 (IBGP / iBGP backbone)
+    - endpoints: ["pe1:eth1", "pe2:eth1"]
+    # PE1 ↔ CE1 (EBGP customer)
+    - endpoints: ["pe1:eth2", "ce1:eth1"]
+    # PE1 ↔ rustybmp (management plane — BMP)
+    - endpoints: ["pe1:eth3", "rustybmp:eth1"]
+    # PE2 ↔ rustybmp
+    - endpoints: ["pe2:eth3", "rustybmp:eth2"]

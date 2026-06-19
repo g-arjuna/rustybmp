@@ -1,7 +1,7 @@
 use std::net::{IpAddr, Ipv4Addr};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use crate::bgp::types::{BgpCapability, BgpUpdate};
+use crate::bgp::types::{BgpCapability, BgpUpdate, AfiSafi};
 
 // ─── BMP message type (RFC 7854 §4) ──────────────────────────────────────────
 
@@ -182,16 +182,18 @@ pub struct PeerUpMessage {
     pub recv_open:    BgpOpenInfo,
 }
 
-// ─── Statistics (RFC 7854 §4.8) ──────────────────────────────────────────────
+// ─── Statistics (RFC 7854 §4.8 + RFC 9972) ───────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StatEntry {
     pub stat_type: u16,
     pub name:      String,
     pub value:     u64,
+    /// Present for per-AFI/SAFI stats (7-byte RFC 7854 or 11-byte RFC 9972 format)
+    pub afi_safi:  Option<AfiSafi>,
 }
 
-/// All RFC 7854 §4.8 statistics counter types
+/// RFC 7854 §4.8 + RFC 9972 statistics counter type names
 pub fn stat_name(t: u16) -> &'static str {
     match t {
         0  => "prefixes-rejected-by-inbound-policy",
@@ -212,10 +214,40 @@ pub fn stat_name(t: u16) -> &'static str {
         15 => "updates-subjected-to-treat-as-withdraw",
         16 => "prefixes-subjected-to-treat-as-withdraw",
         17 => "duplicate-update-messages-rcvd",
-        18 => "adj-rib-out-pre-policy-routes",
-        19 => "adj-rib-out-post-policy-routes",
+        // RFC 9972 (May 2026) — types 18–38
+        18 => "pre-policy-adj-rib-in-routes",
+        19 => "per-afi-safi-pre-policy-adj-rib-in-routes",
+        20 => "post-policy-adj-rib-in-routes",
+        21 => "per-afi-safi-post-policy-adj-rib-in-routes",
+        22 => "per-afi-safi-pre-policy-routes-rejected-inbound",
+        23 => "per-afi-safi-post-policy-routes-accepted-inbound",
+        24 => "adj-rib-out-pre-policy-routes",
+        25 => "per-afi-safi-adj-rib-out-pre-policy-routes",
+        26 => "per-afi-safi-damped-routes",
+        27 => "per-afi-safi-gr-stale-routes",
+        28 => "per-afi-safi-llgr-stale-routes",
+        29 => "pre-route-limit-adj-rib-in",
+        30 => "per-afi-safi-pre-route-limit-adj-rib-in",
+        31 => "pre-license-limit-routes",
+        32 => "per-afi-safi-pre-license-limit-routes",
+        33 => "max-aspath-length-rejected",
+        34 => "per-afi-safi-max-aspath-length-rejected",
+        35 => "per-afi-safi-rpki-invalidated-routes",
+        36 => "per-afi-safi-rpki-not-valid-routes",
+        37 => "adj-rib-out-post-policy-routes",
+        38 => "per-afi-safi-adj-rib-out-post-policy-routes",
         _  => "unknown",
     }
+}
+
+/// RFC 9972 per-AFI/SAFI stat types use 11-byte encoding: AFI(2)+SAFI(1)+Gauge(8)
+pub fn stat_is_per_afi_safi_11byte(t: u16) -> bool {
+    matches!(t, 19 | 21 | 22 | 23 | 25 | 26 | 27 | 28 | 30 | 32 | 34 | 35 | 36 | 38)
+}
+
+/// RFC 7854 §4.8 per-AFI/SAFI stat types use 7-byte encoding: AFI(2)+SAFI(1)+Counter(4)
+pub fn stat_is_per_afi_safi_7byte(t: u16) -> bool {
+    matches!(t, 9 | 10 | 13 | 14)
 }
 
 // ─── Top-level BMP message envelope ──────────────────────────────────────────

@@ -15,14 +15,18 @@ class RouteAnalytics:
         self.conn = duckdb.connect(db_path, read_only=True)
 
     def current_rib(self, peer_addr: Optional[str] = None) -> pd.DataFrame:
-        """Return the current RIB (latest state per prefix)."""
+        """Return the current RIB (latest state per prefix).
+
+        Correctly handles withdrawn prefixes: a prefix whose most recent event
+        is a 'withdraw' will NOT appear in the result.
+        """
         peer_filter = f"AND peer_addr = '{peer_addr}'" if peer_addr else ""
         return self.conn.execute(f"""
             SELECT * FROM (
                 SELECT *, ROW_NUMBER() OVER (PARTITION BY prefix ORDER BY occurred_at DESC) AS rn
                 FROM route_events
-                WHERE action = 'announce' {peer_filter}
-            ) WHERE rn = 1
+                WHERE 1=1 {peer_filter}
+            ) WHERE rn = 1 AND action = 'announce'
         """).df()
 
     def prefix_history(self, prefix: str) -> pd.DataFrame:

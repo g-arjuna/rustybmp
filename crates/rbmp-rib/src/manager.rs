@@ -48,7 +48,7 @@ impl RibManager {
                 self.emit(speaker, SpeakerUp { sys_name, sys_descr });
             }
             BmpPayload::Termination { reason_code, reason_text } => {
-                if let Some(mut sess) = self.speakers.remove(&speaker) {
+                if let Some(sess) = self.speakers.remove(&speaker) {
                     // Clear all peer routes for this speaker
                     for peer_addr in sess.peers.keys() {
                         self.ribs.remove(peer_addr);
@@ -65,7 +65,7 @@ impl RibManager {
 
                 let speaker_sess = self.speakers.entry(speaker).or_insert_with(|| BmpSession::new(speaker, now));
                 let peer = speaker_sess.peers.entry(peer_addr).or_insert_with(|| PeerSession::new(&pu.peer_header));
-                peer.on_up(pu.sent_open.asn, pu.peer_header.peer_as as u16, caps, now);
+                peer.on_up(pu.sent_open.asn, pu.recv_open.hold_time, caps, now);
 
                 info!(%speaker, %peer_addr, peer_as = pu.peer_header.peer_as, "BGP peer up");
                 self.emit(speaker, PeerUp {
@@ -127,10 +127,12 @@ impl RibManager {
                 for prefix in update.all_announced() {
                     let entry = RibEntry {
                         prefix:      prefix.clone(),
+                        path_id:     None, // path_id parsing from NLRI deferred to RV2
                         attributes:  update.attributes.clone(),
                         received_at: now,
                         peer_addr,
                         peer_as:     peer_header.peer_as,
+                        is_best:     true,
                     };
                     rib.insert(rib_type, entry);
                     let ev = RouteChange {
@@ -149,8 +151,7 @@ impl RibManager {
                 }
             }
             BmpPayload::StatsReport { peer_header, stats } => {
-                let counters = stats.iter().map(|s| (s.name.to_string(), s.value)).collect();
-                self.emit(speaker, Stats { peer_header, counters });
+                self.emit(speaker, Stats { peer_header, counters: stats });
             }
             BmpPayload::RouteMirroring { .. } => {
                 // TODO: forward mirrored PDUs to secondary parser
@@ -187,5 +188,10 @@ impl RibManager {
 
     pub fn total_peers_up(&self) -> usize {
         self.speakers.values().map(|s| s.up_peer_count()).sum()
+    }
+
+    /// Return a clone of the broadcast Sender so callers can subscribe to events.
+    pub fn event_sender(&self) -> broadcast::Sender<RibEvent> {
+        self.event_tx.clone()
     }
 }

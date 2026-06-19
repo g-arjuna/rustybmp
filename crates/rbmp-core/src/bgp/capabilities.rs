@@ -53,7 +53,7 @@ fn parse_one_capability(code: u8, data: &[u8]) -> Result<BgpCapability> {
         6 => Ok(BgpCapability::ExtendedMessage),
         // Graceful Restart (RFC 4724)
         64 if data.len() >= 2 => {
-            let restart_time = u16::from_be_bytes([data[0] & 0x0F, data[1]]);
+            let restart_time = u16::from_be_bytes([data[0], data[1]]) & 0x0FFF;
             let mut afi_safis = Vec::new();
             let mut i = 2;
             while i + 3 <= data.len() {
@@ -87,6 +87,8 @@ fn parse_one_capability(code: u8, data: &[u8]) -> Result<BgpCapability> {
         70 => Ok(BgpCapability::EnhancedRouteRefresh),
         // Long-Lived Graceful Restart (draft-uttaro-idr-bgp-persistence)
         71 => Ok(BgpCapability::LongLivedGracefulRestart),
+        // BGP Role (RFC 9234): role byte 0=Provider, 1=RS, 2=RS-Client, 3=Customer, 4=Peer
+        9 if !data.is_empty() => Ok(BgpCapability::BgpRole(data[0])),
         // FQDN (draft-walton-bgp-hostname-capability)
         73 if !data.is_empty() => {
             let hostname_len = data[0] as usize;

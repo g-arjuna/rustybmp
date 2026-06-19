@@ -3,6 +3,7 @@ use chrono::{DateTime, TimeZone, Utc};
 use bytes::Buf;
 use crate::{Error, Result};
 use super::types::*;
+use crate::bgp::types::AfiSafi;
 use crate::bgp::update::parse_bgp_update;
 use crate::bgp::open::parse_bgp_open;
 
@@ -223,15 +224,40 @@ fn parse_stats_report(buf: &[u8]) -> Result<BmpPayload> {
         let stat_len  = u16::from_be_bytes([rest[pos + 2], rest[pos + 3]]) as usize;
         pos += 4;
         if pos + stat_len > rest.len() { break; }
-        let value: u64 = match stat_len {
-            4 => u32::from_be_bytes(rest[pos..pos + 4].try_into().unwrap()) as u64,
-            8 => u64::from_be_bytes(rest[pos..pos + 8].try_into().unwrap()),
-            // per-AFI/SAFI counters (7 bytes: afi(2) + safi(1) + counter(4))
-            7 => u32::from_be_bytes(rest[pos + 3..pos + 7].try_into().unwrap()) as u64,
-            _ => 0,
+
+        let entry = if stat_is_per_afi_safi_11byte(stat_type) && stat_len == 11 {
+            // RFC 9972: AFI(2) + SAFI(1) + 64-bit Gauge(8)
+            let afi  = u16::from_be_bytes([rest[pos], rest[pos + 1]]);
+            let safi = rest[pos + 2];
+            let val  = u64::from_be_bytes(rest[pos + 3..pos + 11].try_into().unwrap());
+            StatEntry {
+                stat_type,
+                name:     stat_name(stat_type).to_string(),
+                value:    val,
+                afi_safi: Some(AfiSafi::new(afi, safi)),
+            }
+        } else if stat_is_per_afi_safi_7byte(stat_type) && stat_len == 7 {
+            // RFC 7854: AFI(2) + SAFI(1) + 32-bit Counter(4)
+            let afi  = u16::from_be_bytes([rest[pos], rest[pos + 1]]);
+            let safi = rest[pos + 2];
+            let val  = u32::from_be_bytes(rest[pos + 3..pos + 7].try_into().unwrap()) as u64;
+            StatEntry {
+                stat_type,
+                name:     stat_name(stat_type).to_string(),
+                value:    val,
+                afi_safi: Some(AfiSafi::new(afi, safi)),
+            }
+        } else {
+            let value: u64 = match stat_len {
+                4 => u32::from_be_bytes(rest[pos..pos + 4].try_into().unwrap()) as u64,
+                8 => u64::from_be_bytes(rest[pos..pos + 8].try_into().unwrap()),
+                _ => 0,
+            };
+            StatEntry { stat_type, name: stat_name(stat_type).to_string(), value, afi_safi: None }
         };
+
         pos += stat_len;
-        stats.push(StatEntry { stat_type, name: stat_name(stat_type).to_string(), value });
+        stats.push(entry);
     }
     Ok(BmpPayload::StatsReport { peer_header, stats })
 }

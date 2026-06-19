@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use rbmp_core::bgp::types::BgpCapability;
+use rbmp_core::bgp::types::{BgpCapability, AfiSafi};
 use rbmp_core::bmp::types::{RibType, PeerHeader};
 
 /// Lifecycle state of a BGP peer as seen via BMP
@@ -18,34 +18,38 @@ pub enum PeerState {
 /// A BGP peer session tracked by the RIB engine
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PeerSession {
-    pub peer_address: IpAddr,
-    pub peer_as:      u32,
-    pub peer_bgp_id:  Ipv4Addr,
-    pub local_as:     u32,
-    pub hold_time:    u16,
-    pub state:        PeerState,
-    pub up_at:        Option<DateTime<Utc>>,
-    pub down_at:      Option<DateTime<Utc>>,
-    pub capabilities: Vec<BgpCapability>,
+    pub peer_address:     IpAddr,
+    pub peer_as:          u32,
+    pub peer_bgp_id:      Ipv4Addr,
+    pub local_as:         u32,
+    pub hold_time:        u16,
+    pub state:            PeerState,
+    pub up_at:            Option<DateTime<Utc>>,
+    pub down_at:          Option<DateTime<Utc>>,
+    pub capabilities:     Vec<BgpCapability>,
     /// Counts of routes per RIB type currently held for this peer
-    pub route_counts: HashMap<RibType, usize>,
-    pub flap_count:   u32,
+    pub route_counts:     HashMap<RibType, usize>,
+    pub flap_count:       u32,
+    /// AFI/SAFIs for which Add-Path is active (RFC 7911)
+    /// Populated from the Add-Path capability in PeerUp OPEN.
+    pub add_path_families: Vec<(AfiSafi, u8)>,
 }
 
 impl PeerSession {
     pub fn new(hdr: &PeerHeader) -> Self {
         Self {
-            peer_address: hdr.peer_address,
-            peer_as:      hdr.peer_as,
-            peer_bgp_id:  hdr.peer_bgp_id,
-            local_as:     0,
-            hold_time:    0,
-            state:        PeerState::Unknown,
-            up_at:        None,
-            down_at:      None,
-            capabilities: Vec::new(),
-            route_counts: HashMap::new(),
-            flap_count:   0,
+            peer_address:      hdr.peer_address,
+            peer_as:           hdr.peer_as,
+            peer_bgp_id:       hdr.peer_bgp_id,
+            local_as:          0,
+            hold_time:         0,
+            state:             PeerState::Unknown,
+            up_at:             None,
+            down_at:           None,
+            capabilities:      Vec::new(),
+            route_counts:      HashMap::new(),
+            flap_count:        0,
+            add_path_families: Vec::new(),
         }
     }
 
@@ -55,7 +59,15 @@ impl PeerSession {
         self.up_at    = Some(at);
         self.local_as  = local_as;
         self.hold_time = hold_time;
+        // Extract Add-Path families from capabilities (RFC 7911)
+        self.add_path_families = caps.iter().find_map(|c| {
+            if let BgpCapability::AddPath(entries) = c { Some(entries.clone()) } else { None }
+        }).unwrap_or_default();
         self.capabilities = caps;
+    }
+
+    pub fn add_path_active_for(&self, afi_safi: AfiSafi) -> bool {
+        self.add_path_families.iter().any(|(a, _)| *a == afi_safi)
     }
 
     pub fn on_down(&mut self, at: DateTime<Utc>) {

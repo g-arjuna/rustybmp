@@ -4,6 +4,9 @@ pub mod nlri;
 pub mod capabilities;
 pub mod open;
 pub mod update;
+pub mod evpn;
+pub mod flowspec;
+pub mod srv6;
 
 pub use types::*;
 pub use update::parse_bgp_update;
