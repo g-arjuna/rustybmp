@@ -4,7 +4,7 @@
   import { api } from '$lib/api';
   import { Network, Clock, TrendingUp, TrendingDown, ChevronRight, RefreshCw } from 'lucide-svelte';
 
-  const addr = $page.params.addr;
+  const addr = $page.params.addr!;
 
   type SessionEvent = { occurred_at: string; event_type: string; reason: string | null };
   type TimelineResp = { peer_addr: string; timeline: SessionEvent[] };
@@ -34,12 +34,11 @@
   onMount(load);
 
   // Derived stats
-  $: upCount   = timeline.filter(e => e.event_type === 'peer_up').length;
-  $: downCount = timeline.filter(e => e.event_type === 'peer_down').length;
-
-  // Build sessions: pair up/down events
   type Session = { up: string; down: string | null; dur_secs: number | null };
-  $: sessions = (() => {
+  const upCount   = $derived(timeline.filter(e => e.event_type === 'peer_up').length);
+  const downCount = $derived(timeline.filter(e => e.event_type === 'peer_down').length);
+
+  const sessions = $derived((() => {
     const result: Session[] = [];
     let lastUp: string | null = null;
     for (const e of [...timeline].reverse()) {
@@ -52,9 +51,9 @@
     }
     if (lastUp) result.push({ up: lastUp, down: null, dur_secs: null });
     return result;
-  })();
+  })());
 
-  $: longestSession = sessions.reduce((m, s) => Math.max(m, s.dur_secs ?? 0), 0);
+  const longestSession = $derived(sessions.reduce((m, s) => Math.max(m, s.dur_secs ?? 0), 0));
 
   function fmt(dt: string) { return new Date(dt).toLocaleString(); }
   function fmtDur(s: number | null) {

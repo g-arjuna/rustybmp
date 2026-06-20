@@ -15,11 +15,14 @@
       await api.health();
       health = 'ok';
     } catch { health = 'error'; }
-    [peers, speakers, rpki] = await Promise.all([
-      api.peers().catch(() => []),
-      api.speakers().catch(() => []),
+    const [peersRes, speakersRes, rpkiRes] = await Promise.all([
+      api.peers().catch(() => ({ peers: [] })),
+      api.speakers().catch(() => ({ speakers: [] })),
       api.rpkiStats().catch(() => ({})),
     ]);
+    peers    = ((peersRes as any).peers ?? []) as { peer_addr: string; state: string }[];
+    speakers = ((speakersRes as any).speakers ?? []) as { addr: string }[];
+    rpki     = rpkiRes as Record<string, number>;
   }
 
   onMount(() => {

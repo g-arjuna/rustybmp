@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::net::IpAddr;
 use chrono::Utc;
 use tokio::sync::broadcast;
-use tracing::{info, warn, debug};
+use tracing::{info, debug};
 use metrics::counter;
 use rbmp_core::bmp::types::{BmpMessage, BmpPayload};
 use rbmp_core::bgp::types::BgpCapability;

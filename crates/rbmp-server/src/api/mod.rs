@@ -7,9 +7,11 @@ pub mod export;
 pub mod topology;
 pub mod ml;
 pub mod onboard;
+pub mod filters;
+pub mod analytics;
 
 use std::sync::Arc;
-use axum::{Router, routing::{get, post}, middleware};
+use axum::{Router, routing::{get, post, any}, middleware};
 use tower_http::cors::CorsLayer;
 use tower_http::services::{ServeDir, ServeFile};
 use crate::auth::{auth_handler, require_auth};
@@ -55,6 +57,24 @@ pub fn build_router(state: AppState) -> Router {
         .route("/onboard/{addr}/confirm",  get(onboard::confirm_speaker))
         // BGP-LS topology graph (RV4-6)
         .route("/bgpls/graph",         get(topology::bgpls_graph))
+        .route("/bgpls/path",          get(topology::bgpls_path))
+        // SR Policy (RV6-5)
+        .route("/srpolicy",            get(analytics::srpolicy_list))
+        .route("/srpolicy/{peer}",     get(analytics::srpolicy_by_peer))
+        // AS Path graph (RV6-5)
+        .route("/aspath/graph",        get(analytics::aspath_graph))
+        // BMP stats history (RV6-5)
+        .route("/bmpstats/history",    get(stats::bmp_stats_history))
+        // Peer capabilities (RV6-5)
+        .route("/peers/{addr}/capabilities", get(peers::peer_capabilities))
+        // RPKI coverage/impact (RV6-5)
+        .route("/rpki/coverage",       get(routes::rpki_coverage))
+        // Filter management (RV6-1)
+        .route("/filters/test",        post(filters::filter_test))
+        .route("/filters/reload",      any(filters::filter_reload))
+        .route("/filters/stats",       get(filters::filter_stats))
+        // ML model status (RV6-5)
+        .route("/ml/model/status",     get(ml::model_status))
         // Parquet export (RV4-2)
         .route("/export/parquet",      get(export::export_parquet))
         // Real-time event stream (SSE)

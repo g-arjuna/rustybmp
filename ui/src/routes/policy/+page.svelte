@@ -35,7 +35,7 @@
 
   onMount(loadPeers);
 
-  const totalPrefixes = $derived(data?.by_rib_type?.reduce((s, r) => s + r.prefix_count, 0) ?? 0);
+  const totalPrefixes = $derived((data as PolicyData | null)?.by_rib_type?.reduce((s: number, r: ByRibType) => s + r.prefix_count, 0) ?? 0);
 
   const RIB_COLORS: Record<string, string> = {
     'pre-policy':  'bg-blue-500',

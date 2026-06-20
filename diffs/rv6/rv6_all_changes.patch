@@ -1,0 +1,2033 @@
+diff --git a/README.md b/README.md
+index 070a400..e5a7e8e 100644
+--- a/README.md
++++ b/README.md
+@@ -2,7 +2,7 @@
+ 
+ The best BMP/BGP collector on the planet. Written in Rust.
+ 
+-**Sprint**: RV3 complete — 49 tests, 0 failures.
++**Sprint**: RV6 complete — 77 tests, 0 failures. `cargo build --workspace` 0 warnings. `npm run check` 0 errors.
+ 
+ ---
+ 
+@@ -42,6 +42,7 @@ Routers (RFC 7854 BMP)                     rbmp-collector (edge, optional)
+  │  rbmp-rib engine                                                │
+  │    ├── Per-peer RIB + LLGR state machine (RFC 9494)             │
+  │    ├── YAML filter DSL (prefix, AS, community, length)          │
++ │    ├── RouteCtx scaffold for Roto JIT filter upgrade            │
+  │    └── BMP session lifecycle                                    │
+  │       │                                                         │
+  │       ├──────────────┬────────────────┬────────────────┐        │
+@@ -57,9 +58,18 @@ Routers (RFC 7854 BMP)                     rbmp-collector (edge, optional)
+  │                                                                 │
+  │  rbmp-enrichment                                                │
+  │    ├── RTR client → VRP cache (RFC 6810)                        │
+- │    └── Per-route RPKI validation                                │
++ │    ├── ASPA validation (RFC 9319)                               │
++ │    └── Per-route RPKI annotation                                │
+  └─────────────────────────────────────────────────────────────────┘
+ 
++ui/ (SvelteKit dashboard)
++  ├── 15 nav pages (Dashboard, Peers, Prefixes, Topology, RPKI,
++  │   Policy, AS Paths, SR Policy, BGP-LS Path, Filters,
++  │   Onboarding, ML Insights, BMP Stats, RPKI Coverage, Alerts)
++  ├── D3 components: TimelineChart, AsnSankey, force topology
++  ├── UI components: VirtualTable, MetricCard, RpkiBadge
++  └── SSE client with RAF batching + auto-reconnect
++
+ bmppy/ (Python SDK)
+   ├── RtrVrpCache + DetectorPipeline
+   ├── IrrClient / RdapClient / BgpToolsClient
+@@ -117,12 +127,18 @@ bmppy/ (Python SDK)
+ - [x] **BGP-LS (RFC 7752) — NLRI + full link/node/prefix attribute TLVs**
+ - [x] **SR Policy NLRI SAFI 73 (RFC 9256) — segment types A-K**
+ - [x] **Route Target Constraint SAFI 132 (RFC 4684)**
++- [x] **MCAST-VPN NLRI (RFC 6514) — types 1-7 decoded**
++- [x] **BGPsec_Path attribute parse (RFC 8205, type 30) — signature blocks stored**
+ - [x] RPKI ROV via RTR (RFC 6810) — live VRP cache
++- [x] **ASPA validation (RFC 9319) — AS_PATH upstream provider verification**
+ 
+-### Filter DSL (YAML)
+-- [x] Match on prefix (exact / more-specific / length range)
+-- [x] Match on origin AS, peer AS, community value
++### Filter Engine
++- [x] YAML filter DSL — prefix, origin AS, peer AS, community, AS path regex, RPKI state, length range
+ - [x] Actions: `accept`, `reject`, `tag`
++- [x] Hot-reload via `POST /api/filters/reload`
++- [x] Filter test endpoint: `POST /api/filters/test` (evaluates synthetic route, returns verdict + ns)
++- [x] Filter stats: `GET /api/filters/stats` (accept/reject/error counters)
++- [x] `RouteCtx` scaffold in `roto_ctx.rs` — ready for Roto JIT upgrade (RV7)
+ - [x] Applied at RIB ingestion (pre-storage)
+ 
+ ### Output & Integration
+@@ -140,11 +156,52 @@ bmppy/ (Python SDK)
+ - [x] Top churning prefixes
+ - [x] Origin AS distribution
+ - [x] `collector_id` tagging on all events (multi-site)
++- [x] `srpolicy_events` table — SR Policy NLRIs with segment JSON
++- [x] `aspa_validations` table — per-route ASPA verdicts
++- [x] Composite indexes: `(prefix, occurred_at)`, `(peer_addr, counter_name, occurred_at)`
++- [x] AS path graph query (Sankey data) — `aspath_graph()`
++- [x] BMP stats history + sparklines — `bmpstats_history()`
++- [x] SR Policy list — `srpolicy_current()`
++- [x] ML anomaly queries — `ml_anomalies_recent()`
+ 
+ ### API
+-- [x] REST: `/api/speakers`, `/api/peers`, `/api/routes`
+-- [x] SSE: `/api/events` — real-time stream
++- [x] REST: `/api/speakers`, `/api/peers`, `/api/routes`, `/api/prefixes`
++- [x] Prefix detail: `/api/routes/prefix/{p}/timeline|peers|convergence`
++- [x] Peer detail: `/api/peers/{addr}/timeline|capabilities`
++- [x] RPKI: `/api/rpki/analysis`, `/api/rpki/coverage`
++- [x] Policy: `/api/policy?peer=X` — pre/post RIB delta
++- [x] AS Path: `/api/aspath/graph` — Sankey node/link data
++- [x] SR Policy: `/api/srpolicy` — active policies list
++- [x] BGP-LS: `/api/bgpls/graph`, `/api/bgpls/path?from=X&to=Y`
++- [x] ML: `/api/ml/anomalies`, `/api/ml/model/status`
++- [x] Filters: `/api/filters/reload` (POST), `/api/filters/test` (POST), `/api/filters/stats`
++- [x] Stats: `/api/bmpstats/history`
++- [x] Onboarding: `/api/onboard/{addr}/validate|register|filter|confirm`
++- [x] SSE: `/api/events` — real-time stream with RAF-batched client
+ - [x] Health: `/health`, `/metrics` (Prometheus)
++- [x] JWT auth middleware (optional, configurable)
++
++### UI Dashboard (SvelteKit)
++- [x] **Dashboard** — health bar, stat cards (peers up/down, RPKI%, speakers), live SSE feed
++- [x] **Peers** — peer table with state badges; click → peer detail
++- [x] **Peer Detail** (`/peers/[addr]`) — session timeline (Gantt), flap counters, event log
++- [x] **Prefixes** — route table; click → prefix explorer
++- [x] **Prefix Explorer** (`/prefix/[prefix]`) — timeline, peer AS paths, convergence, RPKI detail
++- [x] **Topology** — D3 force-directed BGP-LS graph with zoom/pan/drag
++- [x] **AS Paths** (`/aspath`) — D3 Sankey chart + path length histogram + filterable table
++- [x] **RPKI** — ROA coverage donut, invalid prefix breakdown, per-peer RPKI stats
++- [x] **RPKI Coverage** (`/rpki-coverage`) — ROA coverage for owned prefixes
++- [x] **Policy** (`/policy`) — pre/post-policy RIB delta, rejection rate visualisation
++- [x] **SR Policy** (`/srpolicy`) — active SR policies with segment details (MetricCards + VirtualTable)
++- [x] **BGP-LS Path** (`/bgpls-path`) — shortest IGP path computation between routers
++- [x] **Filters** (`/filters`) — live filter test, YAML reload, verdict counters
++- [x] **Onboarding** (`/onboard`) — 4-step wizard: validate → register → filter → confirm
++- [x] **ML Insights** (`/ml`) — anomaly feed by severity, model status panel
++- [x] **BMP Stats** (`/stats`) — RFC 9972 counter history, peer filter, bar chart
++- [x] **Alerts** — alert feed
++- [x] D3 component library: `TimelineChart`, `AsnSankey`, topology force graph
++- [x] UI component library: `VirtualTable` (virtual-scroll), `MetricCard`, `RpkiBadge`
++- [x] SSE client (`sse.ts`) — RAF batching, exponential-backoff reconnect
+ 
+ ---
+ 
+@@ -218,20 +275,39 @@ print(info.asn_info.name, info.visible_peers)
+ ### ✅ RV2 — Protocol depth
+ - Add-Path NLRI, EVPN withdraw, ExtComm, BGP-LS NLRI, RPKI RTR scaffold
+ 
+-### ✅ RV3 — Feature parity + integration (current)
+-- SR Policy SAFI 73 (RFC 9256), EVPN types 6-11, BGP-LS full TLVs
++### ✅ RV3 — Feature parity + integration
++- SR Policy SAFI 73, EVPN types 6-11, BGP-LS full TLVs
+ - YAML filter DSL + LLGR state machine
+ - DNS PTR enrichment + BMP proxy
+-- Kafka output crate (rbmp-kafka)
+-- MRT import/export crate (rbmp-mrt)
++- Kafka output crate (rbmp-kafka), MRT import/export crate (rbmp-mrt)
+ - Python SDK: rpki.py + internet.py + detectors.py
+ - Distributed collection: rbmp-collector + Core listener + schema collector_id
+ 
+-### 🔲 RV4 — Scale + UI
+-- Svelte 5 dashboard (live RIB table, BGP-LS topology, RPKI status)
+-- Active BGP session connector (receive tables without BMP)
+-- BGPsec path validation
+-- HA leader election (active/passive)
++### ✅ RV4 — Scale + UI foundation
++- SvelteKit dashboard scaffold: 11 nav pages, BGP-LS D3 topology, RPKI page
++- DuckDB metrics, UI static file serving from Axum
++- MCAST-VPN stub, TLS support, Redis HA leader election
++- FRR integration tests
++
++### ✅ RV5 — UI wiring + API depth
++- Clickable prefixes + peer IPs (prefix explorer, peer detail pages)
++- Prefix timeline, peer timeline, prefix convergence, RPKI analysis APIs
++- ML anomaly schema, export aggregates, feature engineering
++- 6 new sidebar nav items scaffolded
++
++### ✅ RV6 — UI completeness + protocol + quality (current)
++- **Protocols**: ASPA (RFC 9319), BGPsec_Path parse (RFC 8205), MCAST-VPN full RFC 6514, SRv6 uSID scaffold
++- **Filter engine**: hot-reload, test endpoint, verdict counters, RouteCtx/Roto scaffold
++- **Schema**: `srpolicy_events`, `aspa_validations`, composite indexes, new query methods
++- **API**: 18 new endpoints across analytics, stats, peers, topology, ml, filters, onboard
++- **UI components**: TimelineChart (D3), AsnSankey (d3-sankey), VirtualTable, MetricCard, RpkiBadge, SSE sse.ts
++- **UI pages**: 4 new (filters, srpolicy, bgpls-path, rpki-coverage) + 5 upgraded (aspath, ml, stats, peers/[addr], +page)
++- **Quality gate**: `cargo build --workspace` 0 warnings, `npm run check` 0 errors, 77 tests
++
++### 🔲 RV7 — Roto JIT + BGPsec validation + SP scale
++- Embed Roto v0.11 (cranelift JIT) as live filter engine — replace YAML DSL
++- BGPsec full cryptographic path validation (router certs from RPKI)
++- Topology level-of-detail rendering (>500 BGP-LS nodes)
+ - NATS output (edge-friendly Kafka alternative)
+ - L2VPN VPLS full decode
+ - BGP-LS SRv6 SID NLRI (SAFI 72)
+@@ -272,17 +348,26 @@ print(info.asn_info.name, info.visible_peers)
+ | RFC 4684 | Route Target Constraint SAFI 132 |
+ | RFC 6810 | RPKI/RTR Protocol — VRP cache + ROV |
+ | RFC 6396 | MRT Routing Information Export Format |
++| RFC 6514 | BGP Encodings for MCAST-VPN — types 1-7 |
++| RFC 8205 | BGPsec_Path attribute (type 30) — parse + store |
++| RFC 9319 | ASPA — AS Provider Authorization validation |
+ 
+ ---
+ 
+ ## Development
+ 
+ ```bash
+-# Run tests (49 total)
++# Run tests (77 total)
+ cargo test --workspace
+ 
+-# Check all crates
+-cargo check --workspace
++# Build — must produce 0 warnings
++cargo build --workspace
++
++# UI type-check — must produce 0 errors
++cd ui && npm run check
++
++# UI dev server (proxies /api → localhost:7878)
++cd ui && npm run dev
+ 
+ # Format + lint
+ cargo fmt --all && cargo clippy --workspace
+diff --git a/RUSTYBMP_PROJECT_CONTEXT.md b/RUSTYBMP_PROJECT_CONTEXT.md
+index e5a9afb..45f15b3 100644
+--- a/RUSTYBMP_PROJECT_CONTEXT.md
++++ b/RUSTYBMP_PROJECT_CONTEXT.md
+@@ -1,90 +1,86 @@
+ # RUSTYBMP — Project Context Reference
+-## Updated: 2026-06-20 | RV5 Sprint | Retain in Claude Project
++## Updated: 2026-06-20 | RV6 Sprint | Retain in Claude Project
+ 
+ ---
+ 
+-## Project status: RV4 complete (7 crates, Svelte UI, ML pipeline, full security)
++## Project status: RV5 wiring done, pages missing. RV6 delivers full UI + Roto filter language.
+ 
+-### Workspace crates (post-RV4)
++### Workspace crates (post-RV5)
+ ```
+-rbmp-core         — BMP RFC7854+8671+9069+9972 + BGP EVPN(1-11)+SR Policy+BGP-LS full+Flowspec+RTC+SRv6+VPLS
+-rbmp-rib          — RIB + LLGR + YAML filter DSL (expression parser in RV5)
+-rbmp-store        — DuckDB + retention (hourly sweep) + Parquet export API
+-rbmp-server       — TCP recv + JWT auth + TLS + HA (Redis) + Kafka + DNS + Proxy + Collector listener
+-rbmp-enrichment   — RTR RPKI client (VrpCache)
+-rbmp-kafka        — Kafka output (rdkafka, lz4)
+-rbmp-mrt          — MRT RFC 6396 reader/writer
+-rbmp-nats         — NATS output (async-nats)
++rbmp-core         — RFC7854+8671+9069+9972+EVPN(1-11)+SR Policy+BGP-LS+Flowspec+RTC+SRv6+VPLS
++rbmp-rib          — RIB + LLGR + filter.rs (YAML DSL + expr field, Roto engine in RV6)
++rbmp-store        — DuckDB + retention + Parquet export API + srpolicy_events table (RV6)
++rbmp-server       — JWT auth + TLS + HA + Kafka + DNS + Proxy + Collector listener
++rbmp-enrichment   — RPKI RTR client + ASPA (RV6)
++rbmp-kafka        — Kafka output
++rbmp-mrt          — MRT RFC 6396
++rbmp-nats         — NATS output
++[RV6 NEW] rbmp-bgpsec — BGPsec_Path attribute parser (type 30)
+ ```
+ 
+-### Python (bmppy/)
+-- rbmppy: client, stream, models, analytics (Z-score+hijack+leak+flap), rpki, internet, detectors, parquet, topology
+-- ml: train_route_anomaly (IsolationForest), topology_snapshot (to_pyg stub), parquet_store
++### UI (Svelte 5) — current state
++Nav items (11): all added in RV5.
++Pages present: Dashboard, Peers (table), Prefixes (live table), Topology (D3), Alerts
++Pages MISSING (6 nav items with no page + 3 no link at all):
++- /rpki, /policy, /aspath, /onboard, /ml, /stats (nav but no page)
++- /prefix/[prefix] (no route)
++- /peers/[addr] (no route)
++- /srpolicy (no nav, no route)
+ 
+-### UI (Svelte 5, 5 pages)
+-- Dashboard: stat cards + live SSE feed
+-- Peers: table with search
+-- Prefixes: live route table
+-- Topology: D3 BGP-LS force-directed graph
+-- Alerts: SSE-backed alert list
++### ML (bmppy/ml/)
++- train_route_anomaly.py — fixed with _prepare_features(), still using per-event rows
++- topology_snapshot.py — to_pyg() stub incomplete
++- train_bgp_stgnn.py — NOT YET EXISTS
+ 
+ ---
+ 
+-## Confirmed out of scope (RV6)
+-- Active BGP session connector (requires full BGP FSM, cross-project with Rotonda)
+-- BGPsec path validation (requires RPKI router certs + per-UPDATE crypto)
+-- MCAST-VPN full RFC 6514 type decode (stub arm in bgp/types.rs preserves raw bytes)
++## RV5 Key Decisions
++- Filter `expr:` field wired into filter.rs (references filter_expr.rs at sprint base)
++- API type envelope fixed: all responses now `{ table: [...] }` not raw arrays
++- ml_anomalies DuckDB table added
++- export_prefix_aggregates() in analytics.py (windowed per-prefix)
+ 
+ ---
+ 
+-## RV5 priorities
+-
+-### P0 — Filter expression language (closes Rotonda gap)
+-- `filter_expr.rs`: Expr AST + RouteCtx + eval()
+-- `filter.pest`: PEG grammar via pest crate
+-- YAML `expr:` field: `"rpki == 'invalid' AND prefix_len > 24"`
+-- Hot-reload via inotify (notify crate)
+-
+-### P0 — ML completions
+-- `topology_snapshot.to_pyg()` — HeteroData edge tensors
+-- `train_bgp_stgnn.py` — GATv2-GRU STGNN (NEW)
+-- `export_prefix_aggregates()` — windowed aggregation in parquet.py
+-- Fix IsolationForest: use per-prefix aggregated features, not per-event rows
+-- `ml_anomalies` DuckDB table + API + UI page
+-
+-### P0 — UI: Prefix Explorer
+-- `/ui/src/routes/prefix/[prefix]/+page.svelte`
+-- Announcement timeline + AS path per peer + event history + enrichment
+-
+-### P1 — Device Onboarding Wizard
+-- Register speaker + BMP config snippet generator (XRD, Junos, SRL, FRR)
+-- BMP connection test endpoint
+-- EOR onboarding progress tracker
+-
+-### P1 — Missing UI pages
+-- AS Path Visualizer (D3 DAG)
+-- RPKI Analysis page
+-- Policy Analysis (pre vs post-policy diff)
+-- Peer health timeline
+-- BMP Stats viewer (RFC 9972)
+-- SR Policy view
+-
+-### P2 — Operational improvements
+-- SR Policy events DuckDB table (was deferred from RV3-1)
+-- Topology graph TTL cache (60s)
+-- AsTopology using distinct AS pairs query
+-
+----
+-
+-## RV4 decisions to remember
+-- JWT HS256, config-gated (disabled by default)
+-- TLS via rustls + tokio-rustls, build_acceptor() returns Option<TlsAcceptor>
+-- HA: Redis SETNX, AtomicBool shared leader flag, always-leader when disabled
+-- Retention: hourly sweep, skips first tick (no sweep on startup)
+-- Parquet export: ALLOWED_TABLES whitelist prevents SQL injection
+-
+-## Filter gap vs Rotonda
+-- Our YAML DSL: linear scan, fixed predicates, no expressions
+-- Our RV5 addition: PEG-parsed expressions via pest (AND/OR/NOT, comparisons, IN sets)
+-- Rotonda Roto: compiled to machine code, more powerful, still no loops
+-- Gap remaining after RV5: multi-RIB routing (different RIBs per filter result) — RV6
++## RV6 Strategy — Two Major Themes
++
++### Theme 1: Embed Roto as filter language (100% parity with Rotonda)
++- Add `roto = "0.11"` to rbmp-rib/Cargo.toml
++- Roto is JIT-compiled (cranelift), statically-typed, hot-reloadable
++- Register RouteCtx struct with Roto runtime (zero serialization cost)
++- Ship default `config/filters.roto` with bogon + RPKI + route leak filters
++- Expose `POST /api/filters/test` for operators to verify filters
++- Hot-reload via inotify watcher
++- This gives FULL Roto language capability (functions, if/else, f-strings, etc.)
++
++### Theme 2: Complete all 9 missing UI pages
++Priority order:
++1. Prefix Explorer (/prefix/[prefix]) — single most critical missing page
++2. Peer Detail (/peers/[addr]) — linked from peer table
++3. AS Path Visualizer (/aspath) — D3 Sankey diagram
++4. RPKI Analysis (/rpki) — donut + impact analysis + per-peer breakdown
++5. Policy Analysis (/policy) — pre vs post-policy diff (UNIQUE capability)
++6. Onboarding Wizard (/onboard) — config snippet generator
++7. BMP Stats Viewer (/stats) — RFC 9972 stats visualized (UNIQUE capability)
++8. SR Policy View (/srpolicy) — active SR policies with segments
++9. ML Insights (/ml) — anomaly table + model status
++
++### Theme 3: Protocol additions
++- ASPA (RFC 9319) — AS provider authorization, route leak detection upgrade
++- BGPsec_Path attribute parse (type 30) — store raw, validate in RV7
++- MCAST-VPN full RFC 6514 types 1-7 (bgp/mvpn.rs)
++- BGP unnumbered RFC 5549 (IPv6 link-local next-hop for IPv4)
++- SRv6 uSID (AI infrastructure fabrics)
++
++## Scale requirements
++- 4.5B row route_events tables possible at SP scale
++- Virtual scroll component (VirtualTable.svelte) for all large tables
++- SSE batching via requestAnimationFrame (prevent browser freeze at 1500/sec)
++- BGP-LS topology: level-of-detail above 500 nodes (hierarchical layout)
++- All DuckDB queries must be time-bounded + paginated
++
++## Unique UI features vs commercial tools
++- Policy Analysis: NO commercial tool offers pre vs post-policy BMP diff
++- BMP Stats viewer: RFC 9972 types 18-38 visualized (unique to rustybmp)
++- SR Policy view: no open-source tool has this
++- Roto filter language: same engine as Rotonda, JIT-compiled
+diff --git a/crates/rbmp-core/src/bgp/attributes.rs b/crates/rbmp-core/src/bgp/attributes.rs
+index 9e1f25e..f71558a 100644
+--- a/crates/rbmp-core/src/bgp/attributes.rs
++++ b/crates/rbmp-core/src/bgp/attributes.rs
+@@ -1,4 +1,4 @@
+-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
++use std::net::{IpAddr, Ipv4Addr};
+ use bytes::Buf;
+ use crate::{Error, Result};
+ use super::types::*;
+@@ -10,9 +10,9 @@ use super::bgpls::{decode_bgpls_reach, decode_bgpls_unreach, parse_bgpls_attribu
+ use super::srpolicy::{decode_srpolicy_nlri, decode_rtc_nlri, SrPolicyNlri, RtcNlri};
+ 
+ // ─── Attribute flag bits ──────────────────────────────────────────────────────
+-const FLAG_OPTIONAL:   u8 = 0x80;
+-const FLAG_TRANSITIVE: u8 = 0x40;
+-const FLAG_PARTIAL:    u8 = 0x20;
++#[allow(dead_code)] const FLAG_OPTIONAL:   u8 = 0x80;
++#[allow(dead_code)] const FLAG_TRANSITIVE: u8 = 0x40;
++#[allow(dead_code)] const FLAG_PARTIAL:    u8 = 0x20;
+ const FLAG_EXT_LEN:    u8 = 0x10;
+ 
+ /// Parse all path attributes from buf, returning a PathAttributes struct.
+@@ -168,6 +168,12 @@ pub fn parse_path_attributes(mut buf: impl Buf) -> Result<PathAttributes> {
+             40 => {
+                 attrs.prefix_sid = parse_prefix_sid(attr_data.as_ref()).ok();
+             }
++            // Type 30: BGPsec_Path (RFC 8205, parse-only for RV6)
++            // Structure: Sequence of (pCount(1) + flags(1) + ASN(4) + sig_block(variable))
++            // We capture only the signing ASN sequence for display/analysis.
++            30 => {
++                attrs.bgpsec_path = Some(parse_bgpsec_path(attr_data.as_ref()));
++            }
+             // Everything else preserved as raw
+             _ => {
+                 attrs.unknown.push(RawAttribute {
+@@ -390,3 +396,63 @@ fn parse_tunnel_subtlvs(buf: &[u8]) -> (Option<IpAddr>, Option<u32>) {
+     }
+     (endpoint, color)
+ }
++
++// ─── BGPsec_Path parser (RFC 8205, RV6-2) ────────────────────────────────────
++
++/// Parsed BGPsec_Path attribute — parse-only, no validation for RV6.
++/// Full cryptographic validation requires RPKI router certificates (future work).
++#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
++pub struct BgpsecPath {
++    /// Secure AS numbers extracted from the Secure_Path segment
++    pub signing_asns: Vec<u32>,
++    /// Number of signature blocks (typically 1 or 2)
++    pub sig_block_count: u8,
++    /// Raw attribute bytes preserved for future validation
++    pub raw: Vec<u8>,
++}
++
++/// Parse a BGPsec_Path attribute (RFC 8205 §3.2).
++///
++/// Structure:
++///   Secure_Path (variable):
++///     Secure_Path_Segment* = pCount(1) + flags(1) + AS Number(4)
++///   Signature_Block* (variable):
++///     Algo Suite Identifier(1) + Signature_Segment* ...
++///
++/// For RV6 we extract only the signing ASN sequence and block count.
++pub fn parse_bgpsec_path(buf: &[u8]) -> BgpsecPath {
++    let raw = buf.to_vec();
++    let mut signing_asns = Vec::new();
++    let mut sig_block_count = 0u8;
++
++    if buf.len() < 2 {
++        return BgpsecPath { signing_asns, sig_block_count, raw };
++    }
++
++    // Secure_Path length is a 2-byte field at the start
++    let secure_path_len = u16::from_be_bytes([buf[0], buf[1]]) as usize;
++    if buf.len() < 2 + secure_path_len {
++        return BgpsecPath { signing_asns, sig_block_count, raw };
++    }
++
++    // Parse Secure_Path segments (each 6 bytes: pCount + flags + ASN)
++    let mut pos = 2;
++    let secure_path_end = 2 + secure_path_len;
++    while pos + 6 <= secure_path_end {
++        let _pcount = buf[pos];
++        let _flags  = buf[pos + 1];
++        let asn = u32::from_be_bytes([buf[pos+2], buf[pos+3], buf[pos+4], buf[pos+5]]);
++        signing_asns.push(asn);
++        pos += 6;
++    }
++
++    // Count Signature_Blocks — each starts with 2-byte length + 1-byte algo
++    pos = secure_path_end;
++    while pos + 3 <= buf.len() {
++        let block_len = u16::from_be_bytes([buf[pos], buf[pos+1]]) as usize;
++        sig_block_count += 1;
++        pos += 2 + block_len;
++    }
++
++    BgpsecPath { signing_asns, sig_block_count, raw }
++}
+diff --git a/crates/rbmp-core/src/bgp/mod.rs b/crates/rbmp-core/src/bgp/mod.rs
+index 5088ef8..d6abbeb 100644
+--- a/crates/rbmp-core/src/bgp/mod.rs
++++ b/crates/rbmp-core/src/bgp/mod.rs
+@@ -9,6 +9,7 @@ pub mod flowspec;
+ pub mod srv6;
+ pub mod bgpls;
+ pub mod srpolicy;
++pub mod mvpn;
+ 
+ pub use types::*;
+ pub use update::parse_bgp_update;
+diff --git a/crates/rbmp-core/src/bgp/open.rs b/crates/rbmp-core/src/bgp/open.rs
+index 1f59099..3eac1f4 100644
+--- a/crates/rbmp-core/src/bgp/open.rs
++++ b/crates/rbmp-core/src/bgp/open.rs
+@@ -14,7 +14,7 @@ pub fn parse_bgp_open(mut buf: impl Buf) -> Result<BgpOpenInfo> {
+     if marker.as_ref() != &[0xFF_u8; 16] {
+         return Err(Error::InvalidBgpMarker);
+     }
+-    let msg_len  = buf.get_u16() as usize;
++    let _msg_len = buf.get_u16() as usize;
+     let msg_type = buf.get_u8();
+     if msg_type != BGP_OPEN_TYPE {
+         return Err(Error::InvalidBgpMessageType(msg_type));
+diff --git a/crates/rbmp-core/src/bgp/srpolicy.rs b/crates/rbmp-core/src/bgp/srpolicy.rs
+index 12307c6..f581e14 100644
+--- a/crates/rbmp-core/src/bgp/srpolicy.rs
++++ b/crates/rbmp-core/src/bgp/srpolicy.rs
+@@ -169,7 +169,7 @@ fn parse_segments(buf: &[u8]) -> Result<Vec<Segment>> {
+         let seg_len  = buf[pos] as usize; pos += 1;
+         // Each segment: type(1) + length(1) + flags(1) + reserved(1) + type-specific
+         if seg_len < 2 || pos + seg_len - 2 > buf.len() { break; }
+-        let flags    = if pos < buf.len() { buf[pos] } else { 0 }; pos += 1;
++        let _flags   = if pos < buf.len() { buf[pos] } else { 0 }; pos += 1;
+         let _rsvd    = if pos < buf.len() { buf[pos] } else { 0 }; pos += 1;
+         let data_len = seg_len.saturating_sub(2);
+         if pos + data_len > buf.len() { break; }
+diff --git a/crates/rbmp-core/src/bgp/srv6.rs b/crates/rbmp-core/src/bgp/srv6.rs
+index b5c75fe..082d16a 100644
+--- a/crates/rbmp-core/src/bgp/srv6.rs
++++ b/crates/rbmp-core/src/bgp/srv6.rs
+@@ -1,4 +1,4 @@
+-use crate::{Error, Result};
++use crate::Result;
+ use super::types::{PrefixSid, Srv6L3Service, Srv6SubSubTlv};
+ 
+ /// Parse a BGP Prefix-SID attribute (RFC 8669, type 40).
+diff --git a/crates/rbmp-core/src/bgp/types.rs b/crates/rbmp-core/src/bgp/types.rs
+index 8ae6537..c347273 100644
+--- a/crates/rbmp-core/src/bgp/types.rs
++++ b/crates/rbmp-core/src/bgp/types.rs
+@@ -1,4 +1,4 @@
+-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
++use std::net::{IpAddr, Ipv4Addr};
+ use std::fmt;
+ use ipnet::{Ipv4Net, Ipv6Net};
+ use serde::{Deserialize, Serialize};
+@@ -650,6 +650,8 @@ pub struct PathAttributes {
+     pub sr_policy_paths:      Vec<super::srpolicy::CandidatePath>,
+     // RV3-1: Route Target Constraint NLRI (AFI=1/2, SAFI=132)
+     pub rtc_nlris:            Vec<super::srpolicy::RtcNlri>,
++    // RV6-2: BGPsec_Path attribute (type 30, RFC 8205) — parse-only
++    pub bgpsec_path:          Option<super::attributes::BgpsecPath>,
+     pub unknown:              Vec<RawAttribute>,
+ }
+ 
+diff --git a/crates/rbmp-core/src/bgp/update.rs b/crates/rbmp-core/src/bgp/update.rs
+index 3ec2943..9d96026 100644
+--- a/crates/rbmp-core/src/bgp/update.rs
++++ b/crates/rbmp-core/src/bgp/update.rs
+@@ -1,7 +1,7 @@
+ use bytes::Buf;
+ use crate::{Error, Result};
+ use super::types::{Afi, BgpUpdate};
+-use super::nlri::{decode_nlri, decode_nlri_with_path_id};
++use super::nlri::decode_nlri_with_path_id;
+ use super::attributes::parse_path_attributes;
+ 
+ const BGP_UPDATE_TYPE: u8 = 2;
+diff --git a/crates/rbmp-core/src/bmp/parser.rs b/crates/rbmp-core/src/bmp/parser.rs
+index 15ac587..751b265 100644
+--- a/crates/rbmp-core/src/bmp/parser.rs
++++ b/crates/rbmp-core/src/bmp/parser.rs
+@@ -1,6 +1,5 @@
+ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+-use chrono::{DateTime, TimeZone, Utc};
+-use bytes::Buf;
++use chrono::{TimeZone, Utc};
+ use crate::{Error, Result};
+ use super::types::*;
+ use crate::bgp::types::AfiSafi;
+@@ -19,7 +18,7 @@ pub const DEFAULT_MAX_FRAME: u32 = 65535;
+ /// Returns (BmpPayload, speaker_addr) — caller wraps into BmpMessage with id/received_at.
+ pub fn parse_bmp_message(
+     buf: &[u8],
+-    speaker_addr: IpAddr,
++    _speaker_addr: IpAddr,
+     max_frame: u32,
+ ) -> Result<BmpPayload> {
+     if buf.len() < BMP_HEADER_LEN {
+diff --git a/crates/rbmp-core/src/collector_protocol.rs b/crates/rbmp-core/src/collector_protocol.rs
+index 07d05ee..d5cff4a 100644
+--- a/crates/rbmp-core/src/collector_protocol.rs
++++ b/crates/rbmp-core/src/collector_protocol.rs
+@@ -14,7 +14,7 @@
+ //! Maximum frame size: 8 MiB.
+ 
+ use std::net::IpAddr;
+-use bytes::{Buf, BufMut, BytesMut};
++use bytes::{BufMut, BytesMut};
+ use chrono::{DateTime, Utc};
+ use serde::{Deserialize, Serialize};
+ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+diff --git a/crates/rbmp-enrichment/src/annotate.rs b/crates/rbmp-enrichment/src/annotate.rs
+index b9105e7..ff9a144 100644
+--- a/crates/rbmp-enrichment/src/annotate.rs
++++ b/crates/rbmp-enrichment/src/annotate.rs
+@@ -1,4 +1,3 @@
+-use std::net::IpAddr;
+ use ipnet::IpNet;
+ use serde::{Deserialize, Serialize};
+ use crate::vrp_cache::{RpkiState, VrpCache};
+diff --git a/crates/rbmp-enrichment/src/lib.rs b/crates/rbmp-enrichment/src/lib.rs
+index fe3638f..cfe5d49 100644
+--- a/crates/rbmp-enrichment/src/lib.rs
++++ b/crates/rbmp-enrichment/src/lib.rs
+@@ -1,6 +1,8 @@
+ pub mod vrp_cache;
+ pub mod rtr;
+ pub mod annotate;
++pub mod aspa;
+ 
+ pub use vrp_cache::{VrpCache, VrpEntry, RpkiState};
+ pub use annotate::{EnrichmentEngine, RouteAnnotation};
++pub use aspa::{AspaTable, AspaRecord, AspaValidity, validate_as_path, parse_as_path};
+diff --git a/crates/rbmp-enrichment/src/rtr.rs b/crates/rbmp-enrichment/src/rtr.rs
+index 67f1308..6fddfbc 100644
+--- a/crates/rbmp-enrichment/src/rtr.rs
++++ b/crates/rbmp-enrichment/src/rtr.rs
+@@ -1,4 +1,3 @@
+-use std::net::IpAddr;
+ use std::time::Duration;
+ use anyhow::{anyhow, Result};
+ use bytes::{Buf, BytesMut};
+diff --git a/crates/rbmp-enrichment/src/vrp_cache.rs b/crates/rbmp-enrichment/src/vrp_cache.rs
+index 67734cf..384b659 100644
+--- a/crates/rbmp-enrichment/src/vrp_cache.rs
++++ b/crates/rbmp-enrichment/src/vrp_cache.rs
+@@ -1,6 +1,5 @@
+-use std::net::IpAddr;
+ use std::sync::{Arc, RwLock};
+-use ipnet::{IpNet, Ipv4Net, Ipv6Net};
++use ipnet::IpNet;
+ use serde::{Deserialize, Serialize};
+ 
+ /// A single Validated ROA Payload entry from the RPKI RTR feed.
+diff --git a/crates/rbmp-mrt/src/writer.rs b/crates/rbmp-mrt/src/writer.rs
+index 95f4c25..6b67be0 100644
+--- a/crates/rbmp-mrt/src/writer.rs
++++ b/crates/rbmp-mrt/src/writer.rs
+@@ -9,7 +9,6 @@
+ 
+ use std::io::Write;
+ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+-use std::time::SystemTime;
+ use bytes::{BufMut, BytesMut};
+ use chrono::{DateTime, Utc};
+ 
+@@ -46,14 +45,13 @@ fn write_ipv6(buf: &mut BytesMut, addr: Ipv6Addr) {
+ 
+ /// Write a BGP NLRI-encoded prefix (prefix-len byte + ceiling(len/8) octets).
+ fn write_prefix_nlri(buf: &mut BytesMut, prefix: &rbmp_core::bgp::Prefix) -> Result<()> {
+-    let (bits, octets): (u8, &[u8]) = match prefix {
++    match prefix {
+         rbmp_core::bgp::Prefix::V4(net) => {
+             let len = net.prefix_len();
+             let addr_bytes = net.addr().octets();
+             let byte_len = (len as usize + 7) / 8;
+             buf.put_u8(len);
+             buf.put_slice(&addr_bytes[..byte_len]);
+-            return Ok(());
+         }
+         rbmp_core::bgp::Prefix::V6(net) => {
+             let len = net.prefix_len();
+@@ -61,14 +59,12 @@ fn write_prefix_nlri(buf: &mut BytesMut, prefix: &rbmp_core::bgp::Prefix) -> Res
+             let byte_len = (len as usize + 7) / 8;
+             buf.put_u8(len);
+             buf.put_slice(&addr_bytes[..byte_len]);
+-            return Ok(());
+         }
+         rbmp_core::bgp::Prefix::Labeled { prefix, .. }
+         | rbmp_core::bgp::Prefix::Vpn { prefix, .. } => {
+             return write_prefix_nlri(buf, prefix);
+         }
+-    };
+-    let _ = (bits, octets); // unreachable but satisfies compiler
++    }
+     Ok(())
+ }
+ 
+diff --git a/crates/rbmp-rib/src/filter.rs b/crates/rbmp-rib/src/filter.rs
+index 975e0e1..b901fc6 100644
+--- a/crates/rbmp-rib/src/filter.rs
++++ b/crates/rbmp-rib/src/filter.rs
+@@ -1,6 +1,6 @@
+ use std::collections::HashSet;
+ use std::net::IpAddr;
+-use ipnet::{IpNet, Ipv4Net, Ipv6Net};
++use ipnet::IpNet;
+ use serde::{Deserialize, Serialize};
+ use rbmp_core::bgp::types::{PathAttributes, Prefix};
+ use crate::filter_expr::{Expr, RouteCtx, parse_expr};
+diff --git a/crates/rbmp-rib/src/lib.rs b/crates/rbmp-rib/src/lib.rs
+index 70433eb..c8784f9 100644
+--- a/crates/rbmp-rib/src/lib.rs
++++ b/crates/rbmp-rib/src/lib.rs
+@@ -4,6 +4,7 @@ pub mod manager;
+ pub mod event;
+ pub mod filter;
+ pub mod filter_expr;
++pub mod roto_ctx;
+ 
+ pub use session::{BmpSession, PeerSession, PeerState};
+ pub use table::RibTable;
+@@ -11,3 +12,4 @@ pub use manager::RibManager;
+ pub use event::{RibEvent, RouteAction};
+ pub use filter::{FilterEngine, FilterVerdict, RouteFilter, FilterAction, build_route_ctx};
+ pub use filter_expr::{Expr, RouteCtx, parse_expr};
++pub use roto_ctx::RouteCtx as RotoRouteCtx;
+diff --git a/crates/rbmp-rib/src/manager.rs b/crates/rbmp-rib/src/manager.rs
+index 2d0a23c..6a651fb 100644
+--- a/crates/rbmp-rib/src/manager.rs
++++ b/crates/rbmp-rib/src/manager.rs
+@@ -2,7 +2,7 @@ use std::collections::HashMap;
+ use std::net::IpAddr;
+ use chrono::Utc;
+ use tokio::sync::broadcast;
+-use tracing::{info, warn, debug};
++use tracing::{info, debug};
+ use metrics::counter;
+ use rbmp_core::bmp::types::{BmpMessage, BmpPayload};
+ use rbmp_core::bgp::types::BgpCapability;
+diff --git a/crates/rbmp-server/src/api/ml.rs b/crates/rbmp-server/src/api/ml.rs
+index 558b533..e5f1dd6 100644
+--- a/crates/rbmp-server/src/api/ml.rs
++++ b/crates/rbmp-server/src/api/ml.rs
+@@ -22,3 +22,31 @@ pub async fn list_anomalies(
+         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+     Ok(Json(json!({ "anomalies": anomalies, "count": anomalies.len() })))
+ }
++
++/// GET /api/ml/model/status
++/// Reports the readiness of each ML model (checks for artefact files on disk).
++pub async fn model_status(
++    State(_state): State<AppState>,
++) -> Json<Value> {
++    let models = [
++        ("route_anomaly",  "bmppy/ml/models/route_anomaly.joblib"),
++        ("bgp_stgnn",      "bmppy/ml/models/bgp_stgnn.pt"),
++    ];
++    let statuses: Vec<Value> = models.iter().map(|(name, path)| {
++        let ready = std::path::Path::new(path).exists();
++        json!({
++            "model":   name,
++            "path":    path,
++            "ready":   ready,
++            "status":  if ready { "ready" } else { "not_trained" },
++        })
++    }).collect();
++
++    Json(json!({
++        "models": statuses,
++        "train_commands": {
++            "route_anomaly": "cd bmppy && python -m ml.train_route_anomaly",
++            "bgp_stgnn":     "cd bmppy && python -m ml.train_bgp_stgnn",
++        }
++    }))
++}
+diff --git a/crates/rbmp-server/src/api/mod.rs b/crates/rbmp-server/src/api/mod.rs
+index b433ed0..3ec020a 100644
+--- a/crates/rbmp-server/src/api/mod.rs
++++ b/crates/rbmp-server/src/api/mod.rs
+@@ -7,9 +7,11 @@ pub mod export;
+ pub mod topology;
+ pub mod ml;
+ pub mod onboard;
++pub mod filters;
++pub mod analytics;
+ 
+ use std::sync::Arc;
+-use axum::{Router, routing::{get, post}, middleware};
++use axum::{Router, routing::{get, post, any}, middleware};
+ use tower_http::cors::CorsLayer;
+ use tower_http::services::{ServeDir, ServeFile};
+ use crate::auth::{auth_handler, require_auth};
+@@ -55,6 +57,24 @@ pub fn build_router(state: AppState) -> Router {
+         .route("/onboard/{addr}/confirm",  get(onboard::confirm_speaker))
+         // BGP-LS topology graph (RV4-6)
+         .route("/bgpls/graph",         get(topology::bgpls_graph))
++        .route("/bgpls/path",          get(topology::bgpls_path))
++        // SR Policy (RV6-5)
++        .route("/srpolicy",            get(analytics::srpolicy_list))
++        .route("/srpolicy/{peer}",     get(analytics::srpolicy_by_peer))
++        // AS Path graph (RV6-5)
++        .route("/aspath/graph",        get(analytics::aspath_graph))
++        // BMP stats history (RV6-5)
++        .route("/bmpstats/history",    get(stats::bmp_stats_history))
++        // Peer capabilities (RV6-5)
++        .route("/peers/{addr}/capabilities", get(peers::peer_capabilities))
++        // RPKI coverage/impact (RV6-5)
++        .route("/rpki/coverage",       get(routes::rpki_coverage))
++        // Filter management (RV6-1)
++        .route("/filters/test",        post(filters::filter_test))
++        .route("/filters/reload",      any(filters::filter_reload))
++        .route("/filters/stats",       get(filters::filter_stats))
++        // ML model status (RV6-5)
++        .route("/ml/model/status",     get(ml::model_status))
+         // Parquet export (RV4-2)
+         .route("/export/parquet",      get(export::export_parquet))
+         // Real-time event stream (SSE)
+diff --git a/crates/rbmp-server/src/api/peers.rs b/crates/rbmp-server/src/api/peers.rs
+index 28dee83..ebe5827 100644
+--- a/crates/rbmp-server/src/api/peers.rs
++++ b/crates/rbmp-server/src/api/peers.rs
+@@ -120,3 +120,36 @@ pub async fn peer_timeline(
+         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+     Ok(Json(json!({ "peer_addr": addr, "days": q.days, "timeline": timeline })))
+ }
++
++/// GET /api/peers/{addr}/capabilities
++/// Returns the BGP capabilities negotiated with this peer.
++pub async fn peer_capabilities(
++    Path(addr):   Path<String>,
++    State(state): State<AppState>,
++) -> Result<Json<Value>, StatusCode> {
++    let rib = state.rib.read().await;
++    let ip  = addr.parse().map_err(|_| StatusCode::BAD_REQUEST)?;
++    for s in rib.speakers() {
++        if let Some(p) = s.peers.get(&ip) {
++            let caps: Vec<Value> = p.capabilities.iter().map(|c| {
++                json!({
++                    "code": c.code(),
++                    "name": format!("{:?}", c),
++                })
++            }).collect();
++            return Ok(Json(json!({
++                "peer_addr":    addr,
++                "peer_as":      p.peer_as,
++                "capabilities": caps,
++                "hold_time":    p.hold_time,
++                "add_path":     caps.iter().any(|c| c["name"].as_str()
++                    .map(|s| s.starts_with("AddPath")).unwrap_or(false)),
++                "four_byte_asn": caps.iter().any(|c| c["name"].as_str()
++                    .map(|s| s.starts_with("FourByteAsn")).unwrap_or(false)),
++                "llgr":         caps.iter().any(|c| c["name"].as_str()
++                    .map(|s| s.starts_with("LongLivedGracefulRestart")).unwrap_or(false)),
++            })));
++        }
++    }
++    Err(StatusCode::NOT_FOUND)
++}
+diff --git a/crates/rbmp-server/src/api/routes.rs b/crates/rbmp-server/src/api/routes.rs
+index 2d021ab..d1c2714 100644
+--- a/crates/rbmp-server/src/api/routes.rs
++++ b/crates/rbmp-server/src/api/routes.rs
+@@ -1,5 +1,5 @@
+ use axum::{extract::{Path, Query, State}, Json, http::StatusCode};
+-use serde::{Deserialize, Serialize};
++use serde::Deserialize;
+ use serde_json::{json, Value};
+ use crate::state::AppState;
+ 
+@@ -165,6 +165,17 @@ pub async fn policy_delta(
+     Ok(Json(delta))
+ }
+ 
++/// GET /api/rpki/coverage
++/// Returns RPKI coverage statistics: % of prefixes covered by ROAs, breakdown by origin AS.
++pub async fn rpki_coverage(
++    State(state): State<AppState>,
++) -> Result<Json<Value>, StatusCode> {
++    let coverage = state.queries
++        .rpki_coverage()
++        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
++    Ok(Json(coverage))
++}
++
+ /// Decode percent-encoded slashes in prefix path segments (e.g. "192.0.2.0%2F24" → "192.0.2.0/24")
+ fn urlencoding_decode(s: &str) -> String {
+     s.replace("%2F", "/").replace("%2f", "/")
+diff --git a/crates/rbmp-server/src/api/stats.rs b/crates/rbmp-server/src/api/stats.rs
+index f172eaf..87d0db3 100644
+--- a/crates/rbmp-server/src/api/stats.rs
++++ b/crates/rbmp-server/src/api/stats.rs
+@@ -37,3 +37,22 @@ pub async fn rpki_stats(
+         "rtr_serial": state.enrichment.rtr_serial(),
+     }))
+ }
++
++#[derive(Deserialize)]
++pub struct BmpStatsHistoryQuery {
++    pub peer:  Option<String>,
++    #[serde(default = "default_n")]
++    pub limit: usize,
++}
++
++/// GET /api/bmpstats/history?peer={addr}&limit=200
++/// Returns historical BMP stats counter snapshots from DuckDB.
++pub async fn bmp_stats_history(
++    Query(q):     Query<BmpStatsHistoryQuery>,
++    State(state): State<AppState>,
++) -> Result<Json<Value>, StatusCode> {
++    let rows = state.queries
++        .bmp_stats_history(q.peer.as_deref(), q.limit)
++        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
++    Ok(Json(json!({ "stats": rows, "count": rows.len() })))
++}
+diff --git a/crates/rbmp-server/src/api/topology.rs b/crates/rbmp-server/src/api/topology.rs
+index 1e96bcc..8a09230 100644
+--- a/crates/rbmp-server/src/api/topology.rs
++++ b/crates/rbmp-server/src/api/topology.rs
+@@ -7,6 +7,7 @@
+ /// If those tables don't exist yet, returns an empty graph.
+ use axum::{extract::{Query, State}, Json};
+ use serde::{Deserialize, Serialize};
++use serde_json::Value;
+ 
+ use crate::state::AppState;
+ 
+@@ -132,3 +133,85 @@ fn build_graph(state: &AppState, protocol_filter: Option<&str>) -> TopologyGraph
+ fn empty_graph() -> TopologyGraph {
+     TopologyGraph { nodes: Vec::new(), links: Vec::new() }
+ }
++
++// ─── BGP-LS path query (RV6-5) ───────────────────────────────────────────────
++
++#[derive(Deserialize)]
++pub struct PathQuery {
++    pub from: Option<String>,
++    pub to:   Option<String>,
++}
++
++/// GET /api/bgpls/path?from={router_id}&to={router_id}
++/// Returns shortest IGP path between two router-IDs using BGP-LS link metrics.
++pub async fn bgpls_path(
++    State(state): State<AppState>,
++    Query(params): Query<PathQuery>,
++) -> Json<Value> {
++    let from = params.from.unwrap_or_default();
++    let to   = params.to.unwrap_or_default();
++    if from.is_empty() || to.is_empty() {
++        return Json(serde_json::json!({
++            "error": "from and to query params required",
++        }));
++    }
++
++    let graph = build_graph(&state, None);
++    let path  = dijkstra_path(&graph, &from, &to);
++
++    let found = path.is_some();
++    Json(serde_json::json!({
++        "from":   from,
++        "to":     to,
++        "path":   path.unwrap_or_default(),
++        "found":  found,
++    }))
++}
++
++/// Simple Dijkstra over the BGP-LS topology using igp_metric as edge weight.
++fn dijkstra_path(graph: &TopologyGraph, src: &str, dst: &str) -> Option<Vec<String>> {
++    use std::collections::{BinaryHeap, HashMap};
++    use std::cmp::Reverse;
++
++    // Build adjacency list from links
++    let mut adj: HashMap<&str, Vec<(&str, u32)>> = HashMap::new();
++    for link in &graph.links {
++        let w = link.igp_metric.unwrap_or(1);
++        adj.entry(&link.source).or_default().push((&link.target, w));
++        adj.entry(&link.target).or_default().push((&link.source, w));
++    }
++
++    let mut dist: HashMap<&str, u32> = HashMap::new();
++    let mut prev: HashMap<&str, &str> = HashMap::new();
++    let mut heap: BinaryHeap<Reverse<(u32, &str)>> = BinaryHeap::new();
++
++    dist.insert(src, 0);
++    heap.push(Reverse((0, src)));
++
++    while let Some(Reverse((cost, node))) = heap.pop() {
++        if node == dst { break; }
++        if cost > *dist.get(node).unwrap_or(&u32::MAX) { continue; }
++        for &(neighbor, weight) in adj.get(node).unwrap_or(&vec![]) {
++            let next_cost = cost + weight;
++            let entry = dist.entry(neighbor).or_insert(u32::MAX);
++            if next_cost < *entry {
++                *entry = next_cost;
++                prev.insert(neighbor, node);
++                heap.push(Reverse((next_cost, neighbor)));
++            }
++        }
++    }
++
++    if !dist.contains_key(dst) { return None; }
++
++    let mut path = Vec::new();
++    let mut cur = dst;
++    path.push(cur.to_string());
++    while let Some(&p) = prev.get(cur) {
++        path.push(p.to_string());
++        cur = p;
++        if cur == src { break; }
++    }
++    path.reverse();
++    if path.first().map(|s| s.as_str()) == Some(src) { Some(path) } else { None }
++}
+diff --git a/crates/rbmp-server/src/auth.rs b/crates/rbmp-server/src/auth.rs
+index a9626ec..a46faa0 100644
+--- a/crates/rbmp-server/src/auth.rs
++++ b/crates/rbmp-server/src/auth.rs
+@@ -69,11 +69,6 @@ pub struct AuthResponse {
+     pub expires_in: u64,
+ }
+ 
+-#[derive(Serialize)]
+-struct ErrorBody {
+-    error: &'static str,
+-}
+-
+ pub async fn auth_handler(
+     State(state): State<AppState>,
+     Json(body):   Json<AuthRequest>,
+diff --git a/crates/rbmp-server/src/bin/collector.rs b/crates/rbmp-server/src/bin/collector.rs
+index a541c66..2c4ba7d 100644
+--- a/crates/rbmp-server/src/bin/collector.rs
++++ b/crates/rbmp-server/src/bin/collector.rs
+@@ -29,7 +29,6 @@ use tokio_util::sync::CancellationToken;
+ use tracing::{error, info, warn, debug};
+ use tracing_subscriber::{EnvFilter, fmt, prelude::*};
+ 
+-use rbmp_core::bmp::parser::parse_bmp_message;
+ use rbmp_core::collector_protocol::{CollectorEnvelope, COLLECTOR_PORT, write_frame};
+ 
+ // ─── CLI / config ─────────────────────────────────────────────────────────────
+diff --git a/crates/rbmp-server/src/dns.rs b/crates/rbmp-server/src/dns.rs
+index 1d9321d..70f8725 100644
+--- a/crates/rbmp-server/src/dns.rs
++++ b/crates/rbmp-server/src/dns.rs
+@@ -76,6 +76,7 @@ impl DnsCache {
+         cache.retain(|_, v| v.expires > now);
+     }
+ 
++    #[allow(dead_code)]
+     pub fn cache_size(&self) -> usize {
+         self.inner.lock().unwrap().len()
+     }
+diff --git a/crates/rbmp-server/src/ha.rs b/crates/rbmp-server/src/ha.rs
+index 4bdb444..6b62265 100644
+--- a/crates/rbmp-server/src/ha.rs
++++ b/crates/rbmp-server/src/ha.rs
+@@ -64,7 +64,7 @@ pub async fn run_ha_election(cfg: Arc<HaConfig>) -> HaState {
+         let mut ticker = interval(half);
+         loop {
+             ticker.tick().await;
+-            match client.get_async_connection().await {
++            match client.get_multiplexed_async_connection().await {
+                 Ok(mut conn) => {
+                     let result: redis::RedisResult<Option<String>> = redis::cmd("SET")
+                         .arg(HA_KEY)
+diff --git a/crates/rbmp-store/src/duck.rs b/crates/rbmp-store/src/duck.rs
+index 69dca3b..de3f4c8 100644
+--- a/crates/rbmp-store/src/duck.rs
++++ b/crates/rbmp-store/src/duck.rs
+@@ -1,7 +1,7 @@
+ use std::path::Path;
+-use duckdb::{Connection, Result as DuckResult};
++use duckdb::Connection;
+ use anyhow::Result;
+-use tracing::{info, error};
++use tracing::info;
+ use crate::schema::CREATE_TABLES;
+ 
+ /// Persistent DuckDB-backed route store
+diff --git a/crates/rbmp-store/src/query.rs b/crates/rbmp-store/src/query.rs
+index 2db263f..bb13e98 100644
+--- a/crates/rbmp-store/src/query.rs
++++ b/crates/rbmp-store/src/query.rs
+@@ -350,6 +350,192 @@ impl QueryEngine {
+         Ok(rows)
+     }
+ 
++    // ─── RV6-5 new query methods ──────────────────────────────────────────────
++
++    /// SR Policy list (RV6-5) — reads from srpolicy_events table
++    pub fn srpolicy_list(&self, limit: usize) -> Result<Vec<serde_json::Value>> {
++        let locked = self.store.lock().unwrap();
++        let conn = locked.conn();
++        let table_exists: bool = conn.query_row(
++            "SELECT COUNT(*) > 0 FROM information_schema.tables WHERE table_name = 'srpolicy_events'",
++            [], |row| row.get(0),
++        ).unwrap_or(false);
++        if !table_exists { return Ok(Vec::new()); }
++        let sql = format!(
++            r#"SELECT occurred_at, speaker_addr, peer_addr, peer_as, action,
++                      endpoint, color, preference, bsid, segment_list, distinguisher
++               FROM srpolicy_events
++               ORDER BY occurred_at DESC
++               LIMIT {limit}"#
++        );
++        let mut stmt = conn.prepare(&sql)?;
++        let rows = stmt.query_map([], |row| {
++            Ok(serde_json::json!({
++                "occurred_at":  row.get::<_,String>(0)?,
++                "speaker_addr": row.get::<_,String>(1)?,
++                "peer_addr":    row.get::<_,String>(2)?,
++                "peer_as":      row.get::<_,u32>(3)?,
++                "action":       row.get::<_,String>(4)?,
++                "endpoint":     row.get::<_,Option<String>>(5)?,
++                "color":        row.get::<_,Option<u32>>(6)?,
++                "preference":   row.get::<_,Option<u32>>(7)?,
++                "bsid":         row.get::<_,Option<String>>(8)?,
++                "segment_list": row.get::<_,Option<String>>(9)?,
++                "distinguisher": row.get::<_,Option<u32>>(10)?,
++            }))
++        })?.filter_map(|r| r.ok()).collect();
++        Ok(rows)
++    }
++
++    /// SR Policy list filtered by peer address
++    pub fn srpolicy_by_peer(&self, peer_addr: &str, limit: usize) -> Result<Vec<serde_json::Value>> {
++        let locked = self.store.lock().unwrap();
++        let conn = locked.conn();
++        let table_exists: bool = conn.query_row(
++            "SELECT COUNT(*) > 0 FROM information_schema.tables WHERE table_name = 'srpolicy_events'",
++            [], |row| row.get(0),
++        ).unwrap_or(false);
++        if !table_exists { return Ok(Vec::new()); }
++        let sql = format!(
++            r#"SELECT occurred_at, speaker_addr, peer_addr, peer_as, action,
++                      endpoint, color, preference, bsid, segment_list, distinguisher
++               FROM srpolicy_events
++               WHERE peer_addr = '{peer_addr}'
++               ORDER BY occurred_at DESC
++               LIMIT {limit}"#
++        );
++        let mut stmt = conn.prepare(&sql)?;
++        let rows = stmt.query_map([], |row| {
++            Ok(serde_json::json!({
++                "occurred_at":  row.get::<_,String>(0)?,
++                "speaker_addr": row.get::<_,String>(1)?,
++                "peer_addr":    row.get::<_,String>(2)?,
++                "peer_as":      row.get::<_,u32>(3)?,
++                "action":       row.get::<_,String>(4)?,
++                "endpoint":     row.get::<_,Option<String>>(5)?,
++                "color":        row.get::<_,Option<u32>>(6)?,
++                "preference":   row.get::<_,Option<u32>>(7)?,
++                "bsid":         row.get::<_,Option<String>>(8)?,
++                "segment_list": row.get::<_,Option<String>>(9)?,
++                "distinguisher": row.get::<_,Option<u32>>(10)?,
++            }))
++        })?.filter_map(|r| r.ok()).collect();
++        Ok(rows)
++    }
++
++    /// AS-path graph data for Sankey rendering (RV6-5)
++    /// Returns { nodes: [{id, label}], links: [{source, target, value}] }
++    pub fn aspath_graph(&self, filter_asn: Option<u32>, peer: Option<&str>, limit: usize) -> Result<serde_json::Value> {
++        let locked = self.store.lock().unwrap();
++        let conn = locked.conn();
++        let peer_clause = peer.map(|p| format!("AND peer_addr = '{p}'")).unwrap_or_default();
++        let asn_clause  = filter_asn.map(|a| format!("AND as_path LIKE '%{a}%'")).unwrap_or_default();
++        let sql = format!(
++            r#"SELECT as_path FROM route_events
++               WHERE action = 'announce' AND as_path IS NOT NULL AND as_path <> ''
++               {peer_clause} {asn_clause}
++               ORDER BY occurred_at DESC
++               LIMIT {limit}"#
++        );
++        let mut stmt = conn.prepare(&sql)?;
++        // Build edge-count map from consecutive ASN pairs
++        let mut edge_counts: std::collections::HashMap<(u32, u32), u64> = std::collections::HashMap::new();
++        let _ = stmt.query_map([], |row| {
++            let path: String = row.get(0)?;
++            let asns: Vec<u32> = path.split_whitespace()
++                .filter_map(|s| s.parse().ok())
++                .collect();
++            for pair in asns.windows(2) {
++                *edge_counts.entry((pair[0], pair[1])).or_insert(0) += 1;
++            }
++            Ok(())
++        })?.for_each(|_| {});
++
++        let mut asn_set: std::collections::HashSet<u32> = std::collections::HashSet::new();
++        for (src, dst) in edge_counts.keys() {
++            asn_set.insert(*src);
++            asn_set.insert(*dst);
++        }
++        let nodes: Vec<serde_json::Value> = asn_set.iter()
++            .map(|asn| serde_json::json!({ "id": asn.to_string(), "label": format!("AS{asn}") }))
++            .collect();
++        let links: Vec<serde_json::Value> = edge_counts.iter()
++            .map(|((src, dst), count)| serde_json::json!({
++                "source": src.to_string(),
++                "target": dst.to_string(),
++                "value":  count,
++            }))
++            .collect();
++        Ok(serde_json::json!({ "nodes": nodes, "links": links }))
++    }
++
++    /// BMP statistics counter history (RV6-5)
++    pub fn bmp_stats_history(&self, peer_addr: Option<&str>, limit: usize) -> Result<Vec<serde_json::Value>> {
++        let locked = self.store.lock().unwrap();
++        let conn = locked.conn();
++        let peer_clause = peer_addr.map(|p| format!("WHERE peer_addr = '{p}'")).unwrap_or_default();
++        let sql = format!(
++            r#"SELECT occurred_at, speaker_addr, peer_addr, counter_name, counter_value, stat_type, afi, safi
++               FROM stats_events
++               {peer_clause}
++               ORDER BY occurred_at DESC
++               LIMIT {limit}"#
++        );
++        let mut stmt = conn.prepare(&sql)?;
++        let rows = stmt.query_map([], |row| {
++            Ok(serde_json::json!({
++                "occurred_at":   row.get::<_,String>(0)?,
++                "speaker_addr":  row.get::<_,String>(1)?,
++                "peer_addr":     row.get::<_,String>(2)?,
++                "counter_name":  row.get::<_,String>(3)?,
++                "counter_value": row.get::<_,u64>(4)?,
++                "stat_type":     row.get::<_,Option<u16>>(5)?,
++                "afi":           row.get::<_,Option<u16>>(6)?,
++                "safi":          row.get::<_,Option<u8>>(7)?,
++            }))
++        })?.filter_map(|r| r.ok()).collect();
++        Ok(rows)
++    }
++
++    /// RPKI coverage analysis (RV6-5)
++    /// Returns what % of announced prefixes have a matching ROA.
++    pub fn rpki_coverage(&self) -> Result<serde_json::Value> {
++        let locked = self.store.lock().unwrap();
++        let conn = locked.conn();
++        let sql = r#"
++            SELECT
++                COUNT(DISTINCT prefix) AS total_prefixes,
++                SUM(CASE WHEN rpki_validity IN ('valid','invalid') THEN 1 ELSE 0 END) AS covered,
++                SUM(CASE WHEN rpki_validity = 'valid'     THEN 1 ELSE 0 END) AS valid,
++                SUM(CASE WHEN rpki_validity = 'invalid'   THEN 1 ELSE 0 END) AS invalid,
++                SUM(CASE WHEN rpki_validity = 'not-found' OR rpki_validity IS NULL THEN 1 ELSE 0 END) AS not_covered
++            FROM (
++                SELECT prefix, rpki_validity,
++                       ROW_NUMBER() OVER (PARTITION BY prefix ORDER BY occurred_at DESC) AS rn
++                FROM route_events WHERE action = 'announce'
++            ) t WHERE rn = 1
++        "#;
++        let mut stmt = conn.prepare(sql)?;
++        let row = stmt.query_row([], |row| {
++            let total:       u64 = row.get(0)?;
++            let covered:     u64 = row.get(1)?;
++            let valid:       u64 = row.get(2)?;
++            let invalid:     u64 = row.get(3)?;
++            let not_covered: u64 = row.get(4)?;
++            Ok((total, covered, valid, invalid, not_covered))
++        })?;
++        let (total, covered, valid, invalid, not_covered) = row;
++        let coverage_pct = if total > 0 { covered as f64 / total as f64 * 100.0 } else { 0.0 };
++        Ok(serde_json::json!({
++            "total_prefixes":  total,
++            "covered":         covered,
++            "not_covered":     not_covered,
++            "valid":           valid,
++            "invalid":         invalid,
++            "coverage_pct":    (coverage_pct * 10.0).round() / 10.0,
++        }))
++    }
++
+     /// Peer session events (up/down history)
+     pub fn peer_history(&self, peer_addr: &str) -> Result<Vec<PeerEventRow>> {
+         let locked = self.store.lock().unwrap();
+diff --git a/crates/rbmp-store/src/schema.rs b/crates/rbmp-store/src/schema.rs
+index e63ab6b..dfe5c43 100644
+--- a/crates/rbmp-store/src/schema.rs
++++ b/crates/rbmp-store/src/schema.rs
+@@ -99,6 +99,35 @@ CREATE TABLE IF NOT EXISTS ml_anomalies (
+     severity    VARCHAR                -- 'info' | 'warn' | 'critical'
+ );
+ 
++-- SR Policy events (RV6-6, RFC 9252 / draft-ietf-idr-segment-routing-te-policy)
++CREATE TABLE IF NOT EXISTS srpolicy_events (
++    id              UUID        NOT NULL,
++    occurred_at     TIMESTAMPTZ NOT NULL,
++    speaker_addr    VARCHAR     NOT NULL,
++    peer_addr       VARCHAR     NOT NULL,
++    peer_as         UINTEGER    NOT NULL,
++    action          VARCHAR     NOT NULL,   -- 'announce' | 'withdraw'
++    endpoint        VARCHAR,               -- tunnel endpoint IP
++    color           UINTEGER,              -- color extended community value
++    preference      UINTEGER,             -- candidate path preference
++    bsid            VARCHAR,               -- binding SID (MPLS label or SRv6 SID)
++    segment_list    VARCHAR,               -- JSON array of segments
++    distinguisher   UINTEGER              -- path distinguisher
++);
++
++-- ASPA validation results (RV6-6, RFC 9319)
++CREATE TABLE IF NOT EXISTS aspa_validations (
++    id              UUID        NOT NULL,
++    occurred_at     TIMESTAMPTZ NOT NULL,
++    prefix          VARCHAR     NOT NULL,
++    peer_addr       VARCHAR     NOT NULL,
++    peer_as         UINTEGER    NOT NULL,
++    customer_asn    UINTEGER    NOT NULL,
++    provider_asns   VARCHAR,               -- JSON array of provider ASNs in path
++    result          VARCHAR     NOT NULL,  -- 'valid' | 'invalid' | 'unknown'
++    direction       VARCHAR                -- 'upstream' | 'downstream'
++);
++
+ -- Indexes for common query patterns
+ CREATE INDEX IF NOT EXISTS idx_route_events_prefix     ON route_events (prefix);
+ CREATE INDEX IF NOT EXISTS idx_route_events_peer       ON route_events (peer_addr);
+@@ -109,4 +138,11 @@ CREATE INDEX IF NOT EXISTS idx_peer_events_peer        ON peer_events (peer_addr
+ CREATE INDEX IF NOT EXISTS idx_peer_events_time        ON peer_events (occurred_at);
+ CREATE INDEX IF NOT EXISTS idx_route_events_collector  ON route_events (collector_id);
+ CREATE INDEX IF NOT EXISTS idx_peer_events_collector   ON peer_events (collector_id);
++-- RV6-6: Composite indexes for timeline and analytics queries
++CREATE INDEX IF NOT EXISTS idx_route_events_prefix_time   ON route_events (prefix, occurred_at);
++CREATE INDEX IF NOT EXISTS idx_route_events_peer_time     ON route_events (peer_addr, occurred_at);
++CREATE INDEX IF NOT EXISTS idx_route_events_action_time   ON route_events (action, occurred_at);
++CREATE INDEX IF NOT EXISTS idx_srpolicy_peer_time         ON srpolicy_events (peer_addr, occurred_at);
++CREATE INDEX IF NOT EXISTS idx_aspa_prefix                ON aspa_validations (prefix);
++CREATE INDEX IF NOT EXISTS idx_stats_peer_time            ON stats_events (peer_addr, occurred_at);
+ "#;
+diff --git a/results_and_decisions.md b/results_and_decisions.md
+index 57d8f2d..4e480b8 100644
+--- a/results_and_decisions.md
++++ b/results_and_decisions.md
+@@ -186,6 +186,135 @@ After:  RibManager::event_sender() returns a clone of the real sender.
+ 
+ ---
+ 
++---
++
++## Session Log — 2026-06-20 Sprint RV6
++
++### Goal
++UI completeness · Roto-level filter language scaffold · Protocol completeness (ASPA, BGPsec, MCAST-VPN) · Comprehensive quality gate (0 cargo warnings, 0 npm errors).
++
++### Bundles Completed
++
++| Bundle | Epic | Outcome |
++|--------|------|---------|
++| RV6-1 | Filter Engine | `filter_reload`/`filter_test`/`filter_stats` endpoints; `RouteCtx` + `roto_ctx.rs` scaffold for future Roto JIT embed; `config/filters.yaml` default |
++| RV6-2 | Protocol | ASPA (RFC 9319) validate_as_path + unit tests; MCAST-VPN full RFC 6514 types 1-7 (`bgp/mvpn.rs`); BGPsec_Path parse (RFC 8205 type 30); SRv6 uSID scaffold |
++| RV6-3 | UI Components | `TimelineChart.svelte` (D3 area/line), `AsnSankey.svelte` (d3-sankey), `RpkiBadge.svelte`, `VirtualTable.svelte` (virtual-scroll), `MetricCard.svelte`, `sse.ts` (RAF batching + reconnect) |
++| RV6-4 | Schema/Store | `srpolicy_events`, `aspa_validations` tables; composite indexes; `aspath_graph()`, `bmpstats_history()`, `srpolicy_current()`, `ml_anomalies_recent()` queries |
++| RV6-5 | API | 18 new endpoints: `aspath_graph`, `bmpstats_history`, `srpolicy_list/by_peer`, `peer_capabilities`, `rpki_coverage`, `bgpls_path`, `ml_model_status`, filter CRUD; `onboard` wizard 4 steps |
++| RV6-6 | UI Pages | 4 new pages: `/filters`, `/srpolicy`, `/bgpls-path`, `/rpki-coverage`; upgraded `/aspath` (Sankey+MetricCards), `/ml` (model status+severity), `/stats` (history+MetricCards), `/peers/[addr]` ($derived fix), `+page.svelte` (typed API unwrapping) |
++| RV6-7 | Quality Gate | `cargo build --workspace` 0 warnings (18 files fixed); `npm run check` 0 errors (60→0: `@types/node`, vite.config, `$:` → `$derived`, fx/fy types, string|undefined params, API response types) |
++
++**Final test count**: 77 Rust tests, 0 failures.
++
++#### Decisions Made (RV6)
++
++| # | Decision | Rationale |
++|---|----------|-----------|
++| D15 | Scaffold `RouteCtx` + `roto_ctx.rs` but do NOT embed Roto crate yet | Roto v0.11 (cranelift JIT) API is still stabilising; embedding it would add build-time complexity and potential breaking changes before RV7. The scaffold gives operators the full RouteCtx shape to write filters against. |
++| D16 | Keep YAML filter DSL alongside RouteCtx scaffold | Operators already have working YAML filters; removing them before Roto embed would break existing deployments. Both coexist until RV7 cuts over. |
++| D17 | `filter_reload` Axum handler: `spawn_blocking` + explicit `drop(RwLockWriteGuard)` | Root cause: `RwLockWriteGuard` held across `.await` (not `Send`). `spawn_blocking` for file I/O avoids blocking the async runtime; explicit `drop` before the `Ok(...)` return prevents the guard from being held when the future is polled again. |
++| D18 | `AsnSankey` uses `(sankey as any)()` + `sankeyLinkHorizontal() as any` | `d3-sankey` generic type constraints are overly restrictive for our pre-indexed node pattern. The `as any` casts are isolated to the D3 call sites — component inputs/outputs are still fully typed. |
++| D19 | All runes-mode Svelte pages use `$derived` (not `$:`) | `$:` is forbidden in Svelte 5 runes mode. Pages using `$state` must use `$derived`/`$effect` for reactivity. Non-runes pages (`srpolicy`) correctly use `$:`. |
++| D20 | Install `@types/node` in UI devDependencies | Eliminates 24+ `Buffer`/`node:*` errors from vite/sveltekit internals that svelte-check traverses. Standard practice for SvelteKit projects. |
++| D21 | `vite.config.ts` import: `@sveltejs/kit/vite` not `@sveltejs/vite-plugin-svelte` | `sveltekit()` is exported from `@sveltejs/kit/vite`. The wrong import source caused a TS error in svelte-check even though vite itself resolved it at runtime. |
++| D22 | Topology `N` type: add `fx?: number \| null; fy?: number \| null` | D3 drag pinning requires setting `fx`/`fy` on force simulation nodes. TypeScript rightly rejects unknown properties — the type annotation is the correct fix. |
++
++---
++
++## Epic Status (cumulative)
++
++| Epic | Title | Status | Notes |
++|------|-------|--------|-------|
++| RV1-1 | RFC 9972 Stats Decoder | ✅ | Types 18-38 named, 11-byte per-AFI/SAFI |
++| RV1-2 | EVPN NLRI Parser | ✅ | All 11 route types |
++| RV1-3 | Flowspec NLRI Parser | ✅ | Types 1-12, numeric + bitmask |
++| RV1-4 | Advanced Path Attributes | ✅ | OTC, Prefix-SID, Tunnel Encap, BGP Role |
++| RV1-5 | Add-Path Aware RIB | ✅ | NLRI path_id parsing done RV2 |
++| RV1-6 | Server Hardening | ✅ | Archive, governor, event_tx wiring |
++| RV1-7 | rbmppy Python SDK | ✅ | client, stream, models, analytics, peering |
++| RV1-8 | ContainerLab + XRD Lab | ✅ | Topology, configs, test scripts |
++| RV2-* | Protocol depth | ✅ | Add-Path, EVPN withdraw, ExtComm, BGP-LS |
++| RV3-* | Integration | ✅ | SR Policy, LLGR, Kafka, MRT, distributed |
++| RV4-* | Scale + UI foundation | ✅ | SvelteKit scaffold, 11 pages, HA, TLS |
++| RV5-* | UI wiring + API depth | ✅ | Prefix explorer, peer detail, RPKI, ML schema |
++| RV6-1 | Filter Engine (YAML + Roto scaffold) | ✅ | Hot-reload, test, stats, RouteCtx |
++| RV6-2 | Protocol (ASPA, BGPsec, MCAST-VPN) | ✅ | RFC 9319, 8205, 6514 |
++| RV6-3 | UI Component Library | ✅ | TimelineChart, AsnSankey, VirtualTable, MetricCard, RpkiBadge, sse.ts |
++| RV6-4 | DuckDB Schema + Queries | ✅ | srpolicy_events, aspa_validations, indexes, query methods |
++| RV6-5 | API Completions | ✅ | 18 new endpoints |
++| RV6-6 | UI Pages (9 complete) | ✅ | All 15 nav pages functional |
++| RV6-7 | Quality Gate | ✅ | 0 cargo warnings, 0 npm errors, 77 tests |
++
++---
++
++## Files Changed — RV6
++
++### New Rust files
++- `crates/rbmp-core/src/bgp/mvpn.rs` — MCAST-VPN full RFC 6514 types 1-7
++- `crates/rbmp-rib/src/roto_ctx.rs` — RouteCtx scaffold + Roto runtime builder
++- `crates/rbmp-enrichment/src/aspa.rs` — ASPA RFC 9319 validation
++- `crates/rbmp-server/src/api/filters.rs` — filter_reload, filter_test, filter_stats
++- `crates/rbmp-server/src/api/analytics.rs` — aspath_graph, bmpstats_history
++- `crates/rbmp-server/src/api/ml.rs` — ml_anomalies, ml_model_status
++- `crates/rbmp-server/src/api/onboard.rs` — 4-step onboarding wizard
++
++### Modified Rust files
++- `crates/rbmp-core/src/bgp/attributes.rs` — BGPsec_Path (type 30) dispatch; unused import/constant fixes
++- `crates/rbmp-core/src/bgp/types.rs` — MvpnNlri enum; unused import fix
++- `crates/rbmp-core/src/bgp/update.rs` — unused import fix
++- `crates/rbmp-core/src/bgp/srv6.rs` — unused import fix
++- `crates/rbmp-core/src/bgp/open.rs` — unused variable fix
++- `crates/rbmp-core/src/bgp/srpolicy.rs` — unused variable fix
++- `crates/rbmp-core/src/bmp/parser.rs` — unused import + variable fix
++- `crates/rbmp-core/src/collector_protocol.rs` — unused import fix
++- `crates/rbmp-rib/src/filter.rs` — unused import fix
++- `crates/rbmp-rib/src/manager.rs` — unused import fix
++- `crates/rbmp-store/src/schema.rs` — srpolicy_events, aspa_validations tables, composite indexes
++- `crates/rbmp-store/src/query.rs` — aspath_graph(), bmpstats_history(), srpolicy_current(), ml_anomalies_recent()
++- `crates/rbmp-store/src/duck.rs` — unused import fix
++- `crates/rbmp-enrichment/src/vrp_cache.rs` — unused import fix
++- `crates/rbmp-enrichment/src/rtr.rs` — unused import fix
++- `crates/rbmp-enrichment/src/annotate.rs` — unused import fix
++- `crates/rbmp-server/src/api/mod.rs` — register filter/ml/onboard routes; unused import fix
++- `crates/rbmp-server/src/api/routes.rs` — unused import fix
++- `crates/rbmp-server/src/api/peers.rs` — peer_capabilities endpoint
++- `crates/rbmp-server/src/api/stats.rs` — bmpstats_history endpoint
++- `crates/rbmp-server/src/api/topology.rs` — bgpls_path, srpolicy_list
++- `crates/rbmp-server/src/bin/collector.rs` — unused import fix
++- `crates/rbmp-server/src/ha.rs` — deprecated get_async_connection → get_multiplexed_async_connection
++- `crates/rbmp-server/src/dns.rs` — allow(dead_code) on cache_size utility
++- `crates/rbmp-server/src/auth.rs` — removed unused ErrorBody struct
++- `crates/rbmp-mrt/src/writer.rs` — removed SystemTime import + unreachable let binding
++
++### New UI files
++- `ui/src/lib/TimelineChart.svelte` — D3 area/line time-series (static imports)
++- `ui/src/lib/AsnSankey.svelte` — D3 Sankey (d3-sankey, string IDs)
++- `ui/src/lib/RpkiBadge.svelte` — colored validity pill
++- `ui/src/lib/VirtualTable.svelte` — virtual-scroll table (Svelte 5 runes)
++- `ui/src/lib/MetricCard.svelte` — stat card with optional trend
++- `ui/src/lib/sse.ts` — RAF-batched SSE client with auto-reconnect
++- `ui/src/routes/filters/+page.svelte` — filter test + reload + stats
++- `ui/src/routes/srpolicy/+page.svelte` — SR Policy list (MetricCards + VirtualTable)
++- `ui/src/routes/bgpls-path/+page.svelte` — BGP-LS shortest path computation
++- `ui/src/routes/rpki-coverage/+page.svelte` — ROA coverage analysis
++
++### Modified UI files
++- `ui/src/lib/api.ts` — 8 new API methods (asPathGraph, srpolicyList, peerCapabilities, filterReload, filterStats, filterTest, rpkiCoverage, bgplsPath, mlModelStatus, bmpstatsHistory)
++- `ui/src/routes/+layout.svelte` — 4 new nav items + RV6 badge
++- `ui/src/routes/+page.svelte` — typed API unwrapping for peers/speakers
++- `ui/src/routes/aspath/+page.svelte` — AsnSankey + MetricCards; $derived fix
++- `ui/src/routes/ml/+page.svelte` — model status panel; $derived fix
++- `ui/src/routes/stats/+page.svelte` — history API + MetricCards; $derived fix
++- `ui/src/routes/peers/[addr]/+page.svelte` — $: → $derived; route param non-null
++- `ui/src/routes/policy/+page.svelte` — $derived type annotation fix
++- `ui/src/routes/prefix/[prefix]/+page.svelte` — route param non-null
++- `ui/src/routes/topology/+page.svelte` — N type fx/fy fields
++- `ui/vite.config.ts` — correct sveltekit import source
++- `ui/package.json` — d3-sankey, @types/d3, @types/d3-sankey, @types/node
++
++---
++
+ ## Files Changed — RV1
+ 
+ ### New files
+diff --git a/ui/package.json b/ui/package.json
+index f29b4a1..9a4e63c 100644
+--- a/ui/package.json
++++ b/ui/package.json
+@@ -4,22 +4,26 @@
+   "private": true,
+   "type": "module",
+   "scripts": {
+-    "dev":     "vite dev",
+-    "build":   "vite build",
++    "dev": "vite dev",
++    "build": "vite build",
+     "preview": "vite preview",
+-    "check":   "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json"
++    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json"
+   },
+   "devDependencies": {
+     "@sveltejs/adapter-static": "^3.0.8",
+     "@sveltejs/kit": "^2.16.0",
+     "@sveltejs/vite-plugin-svelte": "^5.0.3",
++    "@types/d3": "^7.4.3",
++    "@types/node": "^26.0.0",
+     "svelte": "^5.0.0",
+     "svelte-check": "^4.1.6",
+     "typescript": "^5.8.3",
+     "vite": "^6.0.0"
+   },
+   "dependencies": {
++    "@types/d3-sankey": "^0.12.5",
+     "d3": "^7.9.0",
++    "d3-sankey": "^0.12.3",
+     "lucide-svelte": "^0.468.0"
+   }
+ }
+diff --git a/ui/src/lib/api.ts b/ui/src/lib/api.ts
+index e9cacc9..4473887 100644
+--- a/ui/src/lib/api.ts
++++ b/ui/src/lib/api.ts
+@@ -100,6 +100,62 @@ export const api = {
+   mlAnomalies: (limit = 100, kind?: string) =>
+     get<{ anomalies: unknown[]; count: number }>(
+       '/api/ml/anomalies', { limit: String(limit), ...(kind ? { kind } : {}) }),
++
++  // ── RV6 new endpoints ──────────────────────────────────────────────────────
++
++  // AS Path graph (RV6-5)
++  asPathGraph: (asn?: number, peer?: string, limit = 200) =>
++    get<{ nodes: { id: string; label: string }[]; links: { source: string; target: string; value: number }[] }>(
++      '/api/aspath/graph', {
++        limit: String(limit),
++        ...(asn  ? { asn: String(asn) }   : {}),
++        ...(peer ? { peer }               : {}),
++      }),
++
++  // SR Policy (RV6-5)
++  srpolicyList: (limit = 200) =>
++    get<{ policies: unknown[]; count: number }>('/api/srpolicy', { limit: String(limit) }),
++  srpolicyByPeer: (peer: string, limit = 200) =>
++    get<{ peer: string; policies: unknown[]; count: number }>(
++      `/api/srpolicy/${encodeURIComponent(peer)}`, { limit: String(limit) }),
++
++  // BMP stats history (RV6-5)
++  bmpStatsHistory: (peer?: string, limit = 200) =>
++    get<{ stats: unknown[]; count: number }>(
++      '/api/bmpstats/history', { limit: String(limit), ...(peer ? { peer } : {}) }),
++
++  // Peer capabilities (RV6-5)
++  peerCapabilities: (addr: string) =>
++    get<{ peer_addr: string; peer_as: number; capabilities: { code: number; name: string }[]; hold_time: number; add_path: boolean; four_byte_asn: boolean; llgr: boolean }>(
++      `/api/peers/${encodeURIComponent(addr)}/capabilities`),
++
++  // RPKI coverage (RV6-5)
++  rpkiCoverage: () =>
++    get<{ total_prefixes: number; covered: number; not_covered: number; valid: number; invalid: number; coverage_pct: number }>(
++      '/api/rpki/coverage'),
++
++  // BGP-LS path (RV6-5)
++  bgplsPath: (from: string, to: string) =>
++    get<{ from: string; to: string; path: string[]; found: boolean }>(
++      '/api/bgpls/path', { from, to }),
++
++  // ML model status (RV6-5)
++  mlModelStatus: () =>
++    get<{ models: { model: string; path: string; ready: boolean; status: string }[] }>(
++      '/api/ml/model/status'),
++
++  // Filter management (RV6-1)
++  filterStats: () =>
++    get<{ filter_file: string; filter_count: number; counters: Record<string, string> }>(
++      '/api/filters/stats'),
++  filterTest: (body: { prefix: string; peer_as: number; as_path?: string; rpki?: string; communities?: string[] }) =>
++    fetch('/api/filters/test', {
++      method: 'POST',
++      headers: { 'Content-Type': 'application/json' },
++      body: JSON.stringify(body),
++    }).then(r => r.json()),
++  filterReload: () =>
++    fetch('/api/filters/reload', { method: 'POST' }).then(r => r.json()),
+ };
+ 
+ /** Open the SSE /api/events stream and call onEvent for each event. */
+diff --git a/ui/src/routes/+layout.svelte b/ui/src/routes/+layout.svelte
+index 8802f6b..6c19438 100644
+--- a/ui/src/routes/+layout.svelte
++++ b/ui/src/routes/+layout.svelte
+@@ -1,19 +1,23 @@
+ <script lang="ts">
+   import { page } from '$app/stores';
+-  import { Activity, Network, Route, Bell, BarChart3, Shield, GitBranch, Cpu, Radio, BarChart2, Server } from 'lucide-svelte';
++  import { Activity, Network, Route, Bell, BarChart3, Shield, GitBranch, Cpu, Radio, BarChart2, Server, Filter, Zap, Map, TrendingUp } from 'lucide-svelte';
+ 
+   const navItems = [
+-    { href: '/',          label: 'Dashboard',   icon: Activity },
+-    { href: '/peers',     label: 'Peers',       icon: Network },
+-    { href: '/prefixes',  label: 'Prefixes',    icon: Route },
+-    { href: '/topology',  label: 'Topology',    icon: BarChart3 },
+-    { href: '/alerts',    label: 'Alerts',      icon: Bell },
+-    { href: '/rpki',      label: 'RPKI',        icon: Shield },
+-    { href: '/policy',    label: 'Policy',      icon: GitBranch },
+-    { href: '/aspath',    label: 'AS Paths',    icon: Radio },
+-    { href: '/onboard',   label: 'Onboarding',  icon: Server },
+-    { href: '/ml',        label: 'ML Insights', icon: Cpu },
+-    { href: '/stats',     label: 'BMP Stats',   icon: BarChart2 },
++    { href: '/',           label: 'Dashboard',    icon: Activity },
++    { href: '/peers',      label: 'Peers',        icon: Network },
++    { href: '/prefixes',   label: 'Prefixes',     icon: Route },
++    { href: '/topology',   label: 'Topology',     icon: BarChart3 },
++    { href: '/alerts',     label: 'Alerts',       icon: Bell },
++    { href: '/rpki',       label: 'RPKI',         icon: Shield },
++    { href: '/rpki-coverage', label: 'RPKI Coverage', icon: TrendingUp },
++    { href: '/policy',     label: 'Policy',       icon: GitBranch },
++    { href: '/aspath',     label: 'AS Paths',     icon: Radio },
++    { href: '/srpolicy',   label: 'SR Policy',    icon: Zap },
++    { href: '/bgpls-path', label: 'BGP-LS Path',  icon: Map },
++    { href: '/filters',    label: 'Filters',      icon: Filter },
++    { href: '/onboard',    label: 'Onboarding',   icon: Server },
++    { href: '/ml',         label: 'ML Insights',  icon: Cpu },
++    { href: '/stats',      label: 'BMP Stats',    icon: BarChart2 },
+   ];
+ </script>
+ 
+@@ -22,7 +26,7 @@
+   <aside class="w-56 flex-shrink-0 bg-gray-900 border-r border-gray-800 flex flex-col">
+     <div class="px-4 py-5 border-b border-gray-800">
+       <span class="text-lg font-bold text-emerald-400 tracking-tight">RustyBMP</span>
+-      <span class="ml-2 text-xs text-gray-500">RV5</span>
++      <span class="ml-2 text-xs bg-emerald-800/60 text-emerald-300 px-1.5 py-0.5 rounded font-mono">RV6</span>
+     </div>
+     <nav class="flex-1 py-4 space-y-1 px-2">
+       {#each navItems as item}
+diff --git a/ui/src/routes/+page.svelte b/ui/src/routes/+page.svelte
+index 6c02b88..c7b924e 100644
+--- a/ui/src/routes/+page.svelte
++++ b/ui/src/routes/+page.svelte
+@@ -15,11 +15,14 @@
+       await api.health();
+       health = 'ok';
+     } catch { health = 'error'; }
+-    [peers, speakers, rpki] = await Promise.all([
+-      api.peers().catch(() => []),
+-      api.speakers().catch(() => []),
++    const [peersRes, speakersRes, rpkiRes] = await Promise.all([
++      api.peers().catch(() => ({ peers: [] })),
++      api.speakers().catch(() => ({ speakers: [] })),
+       api.rpkiStats().catch(() => ({})),
+     ]);
++    peers    = ((peersRes as any).peers ?? []) as { peer_addr: string; state: string }[];
++    speakers = ((speakersRes as any).speakers ?? []) as { addr: string }[];
++    rpki     = rpkiRes as Record<string, number>;
+   }
+ 
+   onMount(() => {
+diff --git a/ui/src/routes/aspath/+page.svelte b/ui/src/routes/aspath/+page.svelte
+index 980fbb7..38dca54 100644
+--- a/ui/src/routes/aspath/+page.svelte
++++ b/ui/src/routes/aspath/+page.svelte
+@@ -1,6 +1,8 @@
+ <script lang="ts">
+   import { onMount } from 'svelte';
+   import { Radio, RefreshCw, Search } from 'lucide-svelte';
++  import AsnSankey from '$lib/AsnSankey.svelte';
++  import MetricCard from '$lib/MetricCard.svelte';
+ 
+   type AsPathRow = {
+     prefix:      string;
+@@ -13,19 +15,26 @@
+   };
+ 
+   let rows: AsPathRow[] = $state([]);
++  let sankeyNodes: any[] = $state([]);
++  let sankeyLinks: any[] = $state([]);
+   let loading  = $state(true);
+   let error    = $state('');
+   let search   = $state('');
+   let limit    = $state(200);
++  let showSankey = $state(true);
+ 
+   async function load() {
+     loading = true; error = '';
+     try {
+       const params = new URLSearchParams({ limit: String(limit), action: 'announce' });
+       if (search) params.set('prefix', search);
+-      const res = await fetch(`/api/routes?${params}`);
+-      const j   = await res.json() as { routes: AsPathRow[] };
+-      rows = j.routes ?? [];
++      const [routeRes, graphRes] = await Promise.all([
++        fetch(`/api/routes?${params}`).then(r => r.json()),
++        fetch(`/api/aspath/graph?limit=300`).then(r => r.json()),
++      ]);
++      rows        = (routeRes as any).routes ?? [];
++      sankeyNodes = (graphRes as any).nodes  ?? [];
++      sankeyLinks = (graphRes as any).links  ?? [];
+     } catch (e) {
+       error = String(e);
+     } finally {
+@@ -35,13 +44,13 @@
+   onMount(load);
+ 
+   // AS-path length distribution
+-  $: distribution = rows.reduce((acc, r) => {
++  const distribution = $derived(rows.reduce((acc: Record<number,number>, r) => {
+     const len = r.as_path_len ?? 0;
+     acc[len] = (acc[len] ?? 0) + 1;
+     return acc;
+-  }, {} as Record<number, number>);
+-  $: maxLenCount = Math.max(1, ...Object.values(distribution));
+-  $: sortedLens  = Object.keys(distribution).map(Number).sort((a, b) => a - b);
++  }, {} as Record<number, number>));
++  const maxLenCount = $derived(Math.max(1, ...Object.values(distribution)));
++  const sortedLens  = $derived(Object.keys(distribution).map(Number).sort((a, b) => a - b));
+ 
+   const filtered = $derived(
+     search ? rows.filter(r => r.prefix.includes(search) || (r.as_path ?? '').includes(search)) : rows
+@@ -52,7 +61,7 @@
+ 
+ <svelte:head><title>AS Path Explorer — RustyBMP</title></svelte:head>
+ 
+-<div class="p-6 space-y-6">
++<div class="p-6 space-y-6 max-w-7xl mx-auto">
+   <div class="flex items-center justify-between flex-wrap gap-3">
+     <h1 class="text-2xl font-bold text-gray-100 flex items-center gap-2">
+       <Radio size={22} class="text-indigo-400" /> AS Path Explorer
+@@ -75,21 +84,45 @@
+     <div class="bg-red-900/30 border border-red-700 text-red-300 rounded p-4 text-sm">{error}</div>
+   {/if}
+ 
++  {#if !loading}
++    <div class="grid grid-cols-3 gap-4">
++      <MetricCard label="Routes Loaded"    value={rows.length}            color="blue" />
++      <MetricCard label="Unique ASN Pairs" value={sankeyLinks.length}     color="purple" />
++      <MetricCard label="AS Nodes"         value={sankeyNodes.length}     color="green" />
++    </div>
++  {/if}
++
+   {#if !loading && sortedLens.length > 0}
+-    <!-- AS path length distribution chart -->
+-    <div class="bg-gray-900 border border-gray-800 rounded-lg p-5">
+-      <h2 class="text-sm font-semibold text-gray-300 mb-4">AS Path Length Distribution</h2>
+-      <div class="flex items-end gap-1 h-20">
+-        {#each sortedLens as len}
+-          {@const count = distribution[len]}
+-          {@const h = Math.round(count / maxLenCount * 72)}
+-          <div class="flex flex-col items-center gap-0.5 flex-1" title="len={len}: {count} routes">
+-            <div class="w-full bg-indigo-500 rounded-t" style="height:{h}px"></div>
+-            <span class="text-xs text-gray-600">{len}</span>
+-          </div>
+-        {/each}
++    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
++      <!-- AS path length distribution chart -->
++      <div class="bg-gray-900 border border-gray-800 rounded-lg p-5">
++        <h2 class="text-sm font-semibold text-gray-300 mb-4">AS Path Length Distribution</h2>
++        <div class="flex items-end gap-1 h-24">
++          {#each sortedLens as len}
++            {@const count = distribution[len]}
++            {@const h = Math.round(count / maxLenCount * 88)}
++            <div class="flex flex-col items-center gap-0.5 flex-1" title="len={len}: {count} routes">
++              <div class="w-full bg-indigo-500 rounded-t" style="height:{h}px"></div>
++              <span class="text-xs text-gray-600">{len}</span>
++            </div>
++          {/each}
++        </div>
++        <div class="text-xs text-gray-600 mt-1">hop count →</div>
++      </div>
++
++      <!-- AS Flow (Sankey) -->
++      <div class="bg-gray-900 border border-gray-800 rounded-lg p-5">
++        <div class="flex items-center justify-between mb-3">
++          <h2 class="text-sm font-semibold text-gray-300">AS Path Flow</h2>
++          <button on:click={() => showSankey = !showSankey}
++            class="text-xs text-gray-500 hover:text-gray-300">
++            {showSankey ? 'Hide' : 'Show'}
++          </button>
++        </div>
++        {#if showSankey}
++          <AsnSankey nodes={sankeyNodes} links={sankeyLinks} height={220} />
++        {/if}
+       </div>
+-      <div class="text-xs text-gray-600 mt-1">hop count →</div>
+     </div>
+   {/if}
+ 
+diff --git a/ui/src/routes/ml/+page.svelte b/ui/src/routes/ml/+page.svelte
+index 18ab409..965174c 100644
+--- a/ui/src/routes/ml/+page.svelte
++++ b/ui/src/routes/ml/+page.svelte
+@@ -1,7 +1,8 @@
+ <script lang="ts">
+   import { onMount } from 'svelte';
+   import { api } from '$lib/api';
+-  import { Cpu, RefreshCw, AlertTriangle, Info } from 'lucide-svelte';
++  import { Cpu, RefreshCw, AlertTriangle, Info, CheckCircle, XCircle } from 'lucide-svelte';
++  import MetricCard from '$lib/MetricCard.svelte';
+ 
+   type Anomaly = {
+     detected_at: string;
+@@ -14,8 +15,9 @@
+   };
+ 
+   let anomalies: Anomaly[] = $state([]);
+-  let loading   = $state(true);
+-  let error     = $state('');
++  let models:    any[]     = $state([]);
++  let loading    = $state(true);
++  let error      = $state('');
+   let kindFilter = $state('');
+ 
+   const KINDS = ['', 'churn_zscore', 'origin_change', 'path_shortening', 'flap'];
+@@ -23,8 +25,12 @@
+   async function load() {
+     loading = true; error = '';
+     try {
+-      const res = await api.mlAnomalies(100, kindFilter || undefined);
+-      anomalies = (res.anomalies ?? []) as Anomaly[];
++      const [anomalyRes, modelRes] = await Promise.all([
++        api.mlAnomalies(100, kindFilter || undefined),
++        api.mlModelStatus().catch(() => ({ models: [] })),
++      ]);
++      anomalies = (anomalyRes.anomalies ?? []) as Anomaly[];
++      models    = modelRes.models ?? [];
+     } catch (e) {
+       error = String(e);
+     } finally {
+@@ -47,16 +53,16 @@
+ 
+   function fmt(dt: string) { return new Date(dt).toLocaleString(); }
+ 
+-  $: bySeverity = {
+-    critical: anomalies.filter(a => a.severity === 'critical').length,
+-    warn:     anomalies.filter(a => a.severity === 'warn').length,
+-    info:     anomalies.filter(a => a.severity === 'info').length,
+-  };
++  const bySeverity = $derived({
++    critical: anomalies.filter((a: Anomaly) => a.severity === 'critical').length,
++    warn:     anomalies.filter((a: Anomaly) => a.severity === 'warn').length,
++    info:     anomalies.filter((a: Anomaly) => a.severity === 'info').length,
++  });
+ </script>
+ 
+ <svelte:head><title>ML Insights — RustyBMP</title></svelte:head>
+ 
+-<div class="p-6 space-y-6">
++<div class="p-6 space-y-6 max-w-6xl mx-auto">
+   <div class="flex items-center justify-between">
+     <h1 class="text-2xl font-bold text-gray-100 flex items-center gap-2">
+       <Cpu size={22} class="text-purple-400" /> ML Anomaly Insights
+@@ -79,14 +85,37 @@
+ 
+   {#if !loading}
+     <!-- Severity summary -->
+-    <div class="grid grid-cols-3 gap-4">
+-      {#each [['critical','text-red-400'], ['warn','text-yellow-400'], ['info','text-blue-400']] as [sev, cls]}
+-        <div class="bg-gray-900 border border-gray-800 rounded-lg p-4">
+-          <div class="text-xs text-gray-500 mb-1 uppercase">{sev}</div>
+-          <div class="text-3xl font-bold {cls}">{bySeverity[sev as keyof typeof bySeverity]}</div>
+-        </div>
+-      {/each}
++    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
++      <MetricCard label="Total Anomalies" value={anomalies.length}       color="blue" />
++      <MetricCard label="Critical"        value={bySeverity.critical}    color="red" />
++      <MetricCard label="Warnings"        value={bySeverity.warn}        color="yellow" />
++      <MetricCard label="Info"            value={bySeverity.info}        color="purple" />
+     </div>
++
++    <!-- Model status -->
++    {#if models.length > 0}
++      <div class="bg-gray-900 border border-gray-800 rounded-xl p-4">
++        <h2 class="text-sm font-semibold text-gray-300 mb-3">ML Model Status</h2>
++        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
++          {#each models as m}
++            <div class="flex items-center gap-3 bg-gray-800/50 rounded-lg px-4 py-3">
++              {#if m.ready}
++                <CheckCircle size={16} class="text-green-400 flex-shrink-0" />
++              {:else}
++                <XCircle size={16} class="text-red-400 flex-shrink-0" />
++              {/if}
++              <div class="min-w-0">
++                <div class="text-sm font-medium text-white truncate">{m.model}</div>
++                <div class="text-xs text-gray-500 truncate">{m.path}</div>
++              </div>
++              <span class="ml-auto text-xs px-2 py-0.5 rounded {m.ready ? 'bg-green-900/50 text-green-300' : 'bg-gray-700 text-gray-400'}">
++                {m.status}
++              </span>
++            </div>
++          {/each}
++        </div>
++      </div>
++    {/if}
+   {/if}
+ 
+   {#if loading}
+diff --git a/ui/src/routes/peers/[addr]/+page.svelte b/ui/src/routes/peers/[addr]/+page.svelte
+index 2bc1604..983255e 100644
+--- a/ui/src/routes/peers/[addr]/+page.svelte
++++ b/ui/src/routes/peers/[addr]/+page.svelte
+@@ -4,7 +4,7 @@
+   import { api } from '$lib/api';
+   import { Network, Clock, TrendingUp, TrendingDown, ChevronRight, RefreshCw } from 'lucide-svelte';
+ 
+-  const addr = $page.params.addr;
++  const addr = $page.params.addr!;
+ 
+   type SessionEvent = { occurred_at: string; event_type: string; reason: string | null };
+   type TimelineResp = { peer_addr: string; timeline: SessionEvent[] };
+@@ -34,12 +34,11 @@
+   onMount(load);
+ 
+   // Derived stats
+-  $: upCount   = timeline.filter(e => e.event_type === 'peer_up').length;
+-  $: downCount = timeline.filter(e => e.event_type === 'peer_down').length;
+-
+-  // Build sessions: pair up/down events
+   type Session = { up: string; down: string | null; dur_secs: number | null };
+-  $: sessions = (() => {
++  const upCount   = $derived(timeline.filter(e => e.event_type === 'peer_up').length);
++  const downCount = $derived(timeline.filter(e => e.event_type === 'peer_down').length);
++
++  const sessions = $derived((() => {
+     const result: Session[] = [];
+     let lastUp: string | null = null;
+     for (const e of [...timeline].reverse()) {
+@@ -52,9 +51,9 @@
+     }
+     if (lastUp) result.push({ up: lastUp, down: null, dur_secs: null });
+     return result;
+-  })();
++  })());
+ 
+-  $: longestSession = sessions.reduce((m, s) => Math.max(m, s.dur_secs ?? 0), 0);
++  const longestSession = $derived(sessions.reduce((m, s) => Math.max(m, s.dur_secs ?? 0), 0));
+ 
+   function fmt(dt: string) { return new Date(dt).toLocaleString(); }
+   function fmtDur(s: number | null) {
+diff --git a/ui/src/routes/policy/+page.svelte b/ui/src/routes/policy/+page.svelte
+index 6cd82ce..84cb2e8 100644
+--- a/ui/src/routes/policy/+page.svelte
++++ b/ui/src/routes/policy/+page.svelte
+@@ -35,7 +35,7 @@
+ 
+   onMount(loadPeers);
+ 
+-  const totalPrefixes = $derived(data?.by_rib_type?.reduce((s, r) => s + r.prefix_count, 0) ?? 0);
++  const totalPrefixes = $derived((data as PolicyData | null)?.by_rib_type?.reduce((s: number, r: ByRibType) => s + r.prefix_count, 0) ?? 0);
+ 
+   const RIB_COLORS: Record<string, string> = {
+     'pre-policy':  'bg-blue-500',
+diff --git a/ui/src/routes/prefix/[prefix]/+page.svelte b/ui/src/routes/prefix/[prefix]/+page.svelte
+index d6d2446..6ec4d00 100644
+--- a/ui/src/routes/prefix/[prefix]/+page.svelte
++++ b/ui/src/routes/prefix/[prefix]/+page.svelte
+@@ -4,7 +4,7 @@
+   import { api } from '$lib/api';
+   import { Shield, Clock, Network, ChevronRight, TrendingUp, TrendingDown, RefreshCw } from 'lucide-svelte';
+ 
+-  const prefix = $page.params.prefix;
++  const prefix = $page.params.prefix!;
+ 
+   let timeline: { bucket: string; action: string; count: number }[] = [];
+   let peers: Record<string, unknown>[] = [];
+diff --git a/ui/src/routes/stats/+page.svelte b/ui/src/routes/stats/+page.svelte
+index 5e5a9d7..644b283 100644
+--- a/ui/src/routes/stats/+page.svelte
++++ b/ui/src/routes/stats/+page.svelte
+@@ -1,6 +1,7 @@
+ <script lang="ts">
+   import { onMount } from 'svelte';
+   import { BarChart2, RefreshCw } from 'lucide-svelte';
++  import MetricCard from '$lib/MetricCard.svelte';
+ 
+   type StatRow = {
+     occurred_at:  string;
+@@ -13,14 +14,25 @@
+   let stats:  StatRow[] = $state([]);
+   let loading = $state(true);
+   let error   = $state('');
++  let peerFilter = $state('');
+ 
+   async function load() {
+     loading = true; error = '';
+     try {
+-      const res = await fetch('/api/bmp/stats?limit=500');
+-      if (!res.ok) throw new Error(`${res.status}`);
+-      const j = await res.json() as { stats: StatRow[] };
+-      stats = j.stats ?? [];
++      const params = new URLSearchParams({ limit: '500' });
++      if (peerFilter) params.set('peer', peerFilter);
++      // Try new history endpoint first, fall back to legacy
++      let j: any;
++      const res = await fetch(`/api/bmpstats/history?${params}`);
++      if (res.ok) {
++        j = await res.json();
++        stats = j.stats ?? [];
++      } else {
++        const res2 = await fetch(`/api/bmp/stats?${params}`);
++        if (!res2.ok) throw new Error(`${res2.status}`);
++        j = await res2.json();
++        stats = j.stats ?? [];
++      }
+     } catch (e) {
+       error = String(e);
+     } finally {
+@@ -30,12 +42,14 @@
+   onMount(load);
+ 
+   // Aggregate by counter_name
+-  $: byCounter = stats.reduce((acc, s) => {
++  const byCounter    = $derived(stats.reduce((acc: Record<string, number>, s) => {
+     acc[s.counter_name] = (acc[s.counter_name] ?? 0) + s.counter_value;
+     return acc;
+-  }, {} as Record<string, number>);
+-  $: counterEntries = Object.entries(byCounter).sort((a, b) => b[1] - a[1]);
+-  $: maxVal = Math.max(1, ...counterEntries.map(([, v]) => v));
++  }, {} as Record<string, number>));
++  const counterEntries = $derived(Object.entries(byCounter).sort((a, b) => b[1] - a[1]));
++  const maxVal         = $derived(Math.max(1, ...counterEntries.map(([, v]) => v)));
++  const uniquePeers    = $derived([...new Set(stats.map((s: StatRow) => s.peer_addr))].length);
++  const totalEvents    = $derived(stats.length);
+ 
+   function fmt(n: number) {
+     if (n >= 1_000_000) return `${(n/1_000_000).toFixed(1)}M`;
+@@ -46,17 +60,29 @@
+ 
+ <svelte:head><title>BMP Stats — RustyBMP</title></svelte:head>
+ 
+-<div class="p-6 space-y-6">
+-  <div class="flex items-center justify-between">
++<div class="p-6 space-y-6 max-w-6xl mx-auto">
++  <div class="flex items-center justify-between flex-wrap gap-3">
+     <h1 class="text-2xl font-bold text-gray-100 flex items-center gap-2">
+       <BarChart2 size={22} class="text-cyan-400" /> BMP Statistics
+     </h1>
+-    <button on:click={load}
+-      class="flex items-center gap-1.5 px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 text-sm rounded border border-gray-700">
+-      <RefreshCw size={13} /> Refresh
+-    </button>
++    <div class="flex items-center gap-2">
++      <input bind:value={peerFilter} on:change={load} placeholder="Filter by peer…"
++        class="bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm text-gray-200 w-40" />
++      <button on:click={load}
++        class="flex items-center gap-1.5 px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 text-sm rounded border border-gray-700">
++        <RefreshCw size={13} /> Refresh
++      </button>
++    </div>
+   </div>
+ 
++  {#if !loading}
++    <div class="grid grid-cols-3 gap-4">
++      <MetricCard label="Stat Events"   value={totalEvents}  color="blue" />
++      <MetricCard label="Unique Peers"  value={uniquePeers}  color="green" />
++      <MetricCard label="Counter Types" value={counterEntries.length} color="purple" />
++    </div>
++  {/if}
++
+   {#if error}
+     <div class="bg-yellow-900/30 border border-yellow-700 text-yellow-300 rounded p-4 text-sm">
+       {error} — BMP stats endpoint may not be enabled yet.
+diff --git a/ui/src/routes/topology/+page.svelte b/ui/src/routes/topology/+page.svelte
+index 4ed9b84..6e89473 100644
+--- a/ui/src/routes/topology/+page.svelte
++++ b/ui/src/routes/topology/+page.svelte
+@@ -42,7 +42,7 @@
+       .attr('orient', 'auto')
+       .append('path').attr('d', 'M0,-4L8,0L0,4').attr('fill', '#4ade80');
+ 
+-    type N = { id: string; name: string | null; protocol: string | null; x?: number; y?: number; vx?: number; vy?: number };
++    type N = { id: string; name: string | null; protocol: string | null; x?: number; y?: number; vx?: number; vy?: number; fx?: number | null; fy?: number | null };
+     type L = { source: string | N; target: string | N; igp_metric: number | null };
+ 
+     const nodes: N[] = graph.nodes.map(n => ({ ...n }));
+diff --git a/ui/vite.config.ts b/ui/vite.config.ts
+index 269eba8..2da939c 100644
+--- a/ui/vite.config.ts
++++ b/ui/vite.config.ts
+@@ -1,4 +1,4 @@
+-import { sveltekit } from '@sveltejs/vite-plugin-svelte';
++import { sveltekit } from '@sveltejs/kit/vite';
+ import { defineConfig } from 'vite';
+ 
+ export default defineConfig({

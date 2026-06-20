@@ -69,11 +69,6 @@ pub struct AuthResponse {
     pub expires_in: u64,
 }
 
-#[derive(Serialize)]
-struct ErrorBody {
-    error: &'static str,
-}
-
 pub async fn auth_handler(
     State(state): State<AppState>,
     Json(body):   Json<AuthRequest>,

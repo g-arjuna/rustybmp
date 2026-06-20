@@ -186,6 +186,135 @@ After:  RibManager::event_sender() returns a clone of the real sender.
 
 ---
 
+---
+
+## Session Log — 2026-06-20 Sprint RV6
+
+### Goal
+UI completeness · Roto-level filter language scaffold · Protocol completeness (ASPA, BGPsec, MCAST-VPN) · Comprehensive quality gate (0 cargo warnings, 0 npm errors).
+
+### Bundles Completed
+
+| Bundle | Epic | Outcome |
+|--------|------|---------|
+| RV6-1 | Filter Engine | `filter_reload`/`filter_test`/`filter_stats` endpoints; `RouteCtx` + `roto_ctx.rs` scaffold for future Roto JIT embed; `config/filters.yaml` default |
+| RV6-2 | Protocol | ASPA (RFC 9319) validate_as_path + unit tests; MCAST-VPN full RFC 6514 types 1-7 (`bgp/mvpn.rs`); BGPsec_Path parse (RFC 8205 type 30); SRv6 uSID scaffold |
+| RV6-3 | UI Components | `TimelineChart.svelte` (D3 area/line), `AsnSankey.svelte` (d3-sankey), `RpkiBadge.svelte`, `VirtualTable.svelte` (virtual-scroll), `MetricCard.svelte`, `sse.ts` (RAF batching + reconnect) |
+| RV6-4 | Schema/Store | `srpolicy_events`, `aspa_validations` tables; composite indexes; `aspath_graph()`, `bmpstats_history()`, `srpolicy_current()`, `ml_anomalies_recent()` queries |
+| RV6-5 | API | 18 new endpoints: `aspath_graph`, `bmpstats_history`, `srpolicy_list/by_peer`, `peer_capabilities`, `rpki_coverage`, `bgpls_path`, `ml_model_status`, filter CRUD; `onboard` wizard 4 steps |
+| RV6-6 | UI Pages | 4 new pages: `/filters`, `/srpolicy`, `/bgpls-path`, `/rpki-coverage`; upgraded `/aspath` (Sankey+MetricCards), `/ml` (model status+severity), `/stats` (history+MetricCards), `/peers/[addr]` ($derived fix), `+page.svelte` (typed API unwrapping) |
+| RV6-7 | Quality Gate | `cargo build --workspace` 0 warnings (18 files fixed); `npm run check` 0 errors (60→0: `@types/node`, vite.config, `$:` → `$derived`, fx/fy types, string|undefined params, API response types) |
+
+**Final test count**: 77 Rust tests, 0 failures.
+
+#### Decisions Made (RV6)
+
+| # | Decision | Rationale |
+|---|----------|-----------|
+| D15 | Scaffold `RouteCtx` + `roto_ctx.rs` but do NOT embed Roto crate yet | Roto v0.11 (cranelift JIT) API is still stabilising; embedding it would add build-time complexity and potential breaking changes before RV7. The scaffold gives operators the full RouteCtx shape to write filters against. |
+| D16 | Keep YAML filter DSL alongside RouteCtx scaffold | Operators already have working YAML filters; removing them before Roto embed would break existing deployments. Both coexist until RV7 cuts over. |
+| D17 | `filter_reload` Axum handler: `spawn_blocking` + explicit `drop(RwLockWriteGuard)` | Root cause: `RwLockWriteGuard` held across `.await` (not `Send`). `spawn_blocking` for file I/O avoids blocking the async runtime; explicit `drop` before the `Ok(...)` return prevents the guard from being held when the future is polled again. |
+| D18 | `AsnSankey` uses `(sankey as any)()` + `sankeyLinkHorizontal() as any` | `d3-sankey` generic type constraints are overly restrictive for our pre-indexed node pattern. The `as any` casts are isolated to the D3 call sites — component inputs/outputs are still fully typed. |
+| D19 | All runes-mode Svelte pages use `$derived` (not `$:`) | `$:` is forbidden in Svelte 5 runes mode. Pages using `$state` must use `$derived`/`$effect` for reactivity. Non-runes pages (`srpolicy`) correctly use `$:`. |
+| D20 | Install `@types/node` in UI devDependencies | Eliminates 24+ `Buffer`/`node:*` errors from vite/sveltekit internals that svelte-check traverses. Standard practice for SvelteKit projects. |
+| D21 | `vite.config.ts` import: `@sveltejs/kit/vite` not `@sveltejs/vite-plugin-svelte` | `sveltekit()` is exported from `@sveltejs/kit/vite`. The wrong import source caused a TS error in svelte-check even though vite itself resolved it at runtime. |
+| D22 | Topology `N` type: add `fx?: number \| null; fy?: number \| null` | D3 drag pinning requires setting `fx`/`fy` on force simulation nodes. TypeScript rightly rejects unknown properties — the type annotation is the correct fix. |
+
+---
+
+## Epic Status (cumulative)
+
+| Epic | Title | Status | Notes |
+|------|-------|--------|-------|
+| RV1-1 | RFC 9972 Stats Decoder | ✅ | Types 18-38 named, 11-byte per-AFI/SAFI |
+| RV1-2 | EVPN NLRI Parser | ✅ | All 11 route types |
+| RV1-3 | Flowspec NLRI Parser | ✅ | Types 1-12, numeric + bitmask |
+| RV1-4 | Advanced Path Attributes | ✅ | OTC, Prefix-SID, Tunnel Encap, BGP Role |
+| RV1-5 | Add-Path Aware RIB | ✅ | NLRI path_id parsing done RV2 |
+| RV1-6 | Server Hardening | ✅ | Archive, governor, event_tx wiring |
+| RV1-7 | rbmppy Python SDK | ✅ | client, stream, models, analytics, peering |
+| RV1-8 | ContainerLab + XRD Lab | ✅ | Topology, configs, test scripts |
+| RV2-* | Protocol depth | ✅ | Add-Path, EVPN withdraw, ExtComm, BGP-LS |
+| RV3-* | Integration | ✅ | SR Policy, LLGR, Kafka, MRT, distributed |
+| RV4-* | Scale + UI foundation | ✅ | SvelteKit scaffold, 11 pages, HA, TLS |
+| RV5-* | UI wiring + API depth | ✅ | Prefix explorer, peer detail, RPKI, ML schema |
+| RV6-1 | Filter Engine (YAML + Roto scaffold) | ✅ | Hot-reload, test, stats, RouteCtx |
+| RV6-2 | Protocol (ASPA, BGPsec, MCAST-VPN) | ✅ | RFC 9319, 8205, 6514 |
+| RV6-3 | UI Component Library | ✅ | TimelineChart, AsnSankey, VirtualTable, MetricCard, RpkiBadge, sse.ts |
+| RV6-4 | DuckDB Schema + Queries | ✅ | srpolicy_events, aspa_validations, indexes, query methods |
+| RV6-5 | API Completions | ✅ | 18 new endpoints |
+| RV6-6 | UI Pages (9 complete) | ✅ | All 15 nav pages functional |
+| RV6-7 | Quality Gate | ✅ | 0 cargo warnings, 0 npm errors, 77 tests |
+
+---
+
+## Files Changed — RV6
+
+### New Rust files
+- `crates/rbmp-core/src/bgp/mvpn.rs` — MCAST-VPN full RFC 6514 types 1-7
+- `crates/rbmp-rib/src/roto_ctx.rs` — RouteCtx scaffold + Roto runtime builder
+- `crates/rbmp-enrichment/src/aspa.rs` — ASPA RFC 9319 validation
+- `crates/rbmp-server/src/api/filters.rs` — filter_reload, filter_test, filter_stats
+- `crates/rbmp-server/src/api/analytics.rs` — aspath_graph, bmpstats_history
+- `crates/rbmp-server/src/api/ml.rs` — ml_anomalies, ml_model_status
+- `crates/rbmp-server/src/api/onboard.rs` — 4-step onboarding wizard
+
+### Modified Rust files
+- `crates/rbmp-core/src/bgp/attributes.rs` — BGPsec_Path (type 30) dispatch; unused import/constant fixes
+- `crates/rbmp-core/src/bgp/types.rs` — MvpnNlri enum; unused import fix
+- `crates/rbmp-core/src/bgp/update.rs` — unused import fix
+- `crates/rbmp-core/src/bgp/srv6.rs` — unused import fix
+- `crates/rbmp-core/src/bgp/open.rs` — unused variable fix
+- `crates/rbmp-core/src/bgp/srpolicy.rs` — unused variable fix
+- `crates/rbmp-core/src/bmp/parser.rs` — unused import + variable fix
+- `crates/rbmp-core/src/collector_protocol.rs` — unused import fix
+- `crates/rbmp-rib/src/filter.rs` — unused import fix
+- `crates/rbmp-rib/src/manager.rs` — unused import fix
+- `crates/rbmp-store/src/schema.rs` — srpolicy_events, aspa_validations tables, composite indexes
+- `crates/rbmp-store/src/query.rs` — aspath_graph(), bmpstats_history(), srpolicy_current(), ml_anomalies_recent()
+- `crates/rbmp-store/src/duck.rs` — unused import fix
+- `crates/rbmp-enrichment/src/vrp_cache.rs` — unused import fix
+- `crates/rbmp-enrichment/src/rtr.rs` — unused import fix
+- `crates/rbmp-enrichment/src/annotate.rs` — unused import fix
+- `crates/rbmp-server/src/api/mod.rs` — register filter/ml/onboard routes; unused import fix
+- `crates/rbmp-server/src/api/routes.rs` — unused import fix
+- `crates/rbmp-server/src/api/peers.rs` — peer_capabilities endpoint
+- `crates/rbmp-server/src/api/stats.rs` — bmpstats_history endpoint
+- `crates/rbmp-server/src/api/topology.rs` — bgpls_path, srpolicy_list
+- `crates/rbmp-server/src/bin/collector.rs` — unused import fix
+- `crates/rbmp-server/src/ha.rs` — deprecated get_async_connection → get_multiplexed_async_connection
+- `crates/rbmp-server/src/dns.rs` — allow(dead_code) on cache_size utility
+- `crates/rbmp-server/src/auth.rs` — removed unused ErrorBody struct
+- `crates/rbmp-mrt/src/writer.rs` — removed SystemTime import + unreachable let binding
+
+### New UI files
+- `ui/src/lib/TimelineChart.svelte` — D3 area/line time-series (static imports)
+- `ui/src/lib/AsnSankey.svelte` — D3 Sankey (d3-sankey, string IDs)
+- `ui/src/lib/RpkiBadge.svelte` — colored validity pill
+- `ui/src/lib/VirtualTable.svelte` — virtual-scroll table (Svelte 5 runes)
+- `ui/src/lib/MetricCard.svelte` — stat card with optional trend
+- `ui/src/lib/sse.ts` — RAF-batched SSE client with auto-reconnect
+- `ui/src/routes/filters/+page.svelte` — filter test + reload + stats
+- `ui/src/routes/srpolicy/+page.svelte` — SR Policy list (MetricCards + VirtualTable)
+- `ui/src/routes/bgpls-path/+page.svelte` — BGP-LS shortest path computation
+- `ui/src/routes/rpki-coverage/+page.svelte` — ROA coverage analysis
+
+### Modified UI files
+- `ui/src/lib/api.ts` — 8 new API methods (asPathGraph, srpolicyList, peerCapabilities, filterReload, filterStats, filterTest, rpkiCoverage, bgplsPath, mlModelStatus, bmpstatsHistory)
+- `ui/src/routes/+layout.svelte` — 4 new nav items + RV6 badge
+- `ui/src/routes/+page.svelte` — typed API unwrapping for peers/speakers
+- `ui/src/routes/aspath/+page.svelte` — AsnSankey + MetricCards; $derived fix
+- `ui/src/routes/ml/+page.svelte` — model status panel; $derived fix
+- `ui/src/routes/stats/+page.svelte` — history API + MetricCards; $derived fix
+- `ui/src/routes/peers/[addr]/+page.svelte` — $: → $derived; route param non-null
+- `ui/src/routes/policy/+page.svelte` — $derived type annotation fix
+- `ui/src/routes/prefix/[prefix]/+page.svelte` — route param non-null
+- `ui/src/routes/topology/+page.svelte` — N type fx/fy fields
+- `ui/vite.config.ts` — correct sveltekit import source
+- `ui/package.json` — d3-sankey, @types/d3, @types/d3-sankey, @types/node
+
+---
+
 ## Files Changed — RV1
 
 ### New files

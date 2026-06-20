@@ -14,7 +14,7 @@ pub fn parse_bgp_open(mut buf: impl Buf) -> Result<BgpOpenInfo> {
     if marker.as_ref() != &[0xFF_u8; 16] {
         return Err(Error::InvalidBgpMarker);
     }
-    let msg_len  = buf.get_u16() as usize;
+    let _msg_len = buf.get_u16() as usize;
     let msg_type = buf.get_u8();
     if msg_type != BGP_OPEN_TYPE {
         return Err(Error::InvalidBgpMessageType(msg_type));

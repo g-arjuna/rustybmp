@@ -64,7 +64,7 @@ pub async fn run_ha_election(cfg: Arc<HaConfig>) -> HaState {
         let mut ticker = interval(half);
         loop {
             ticker.tick().await;
-            match client.get_async_connection().await {
+            match client.get_multiplexed_async_connection().await {
                 Ok(mut conn) => {
                     let result: redis::RedisResult<Option<String>> = redis::cmd("SET")
                         .arg(HA_KEY)

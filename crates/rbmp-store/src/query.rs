@@ -350,6 +350,192 @@ impl QueryEngine {
         Ok(rows)
     }
 
+    // ─── RV6-5 new query methods ──────────────────────────────────────────────
+
+    /// SR Policy list (RV6-5) — reads from srpolicy_events table
+    pub fn srpolicy_list(&self, limit: usize) -> Result<Vec<serde_json::Value>> {
+        let locked = self.store.lock().unwrap();
+        let conn = locked.conn();
+        let table_exists: bool = conn.query_row(
+            "SELECT COUNT(*) > 0 FROM information_schema.tables WHERE table_name = 'srpolicy_events'",
+            [], |row| row.get(0),
+        ).unwrap_or(false);
+        if !table_exists { return Ok(Vec::new()); }
+        let sql = format!(
+            r#"SELECT occurred_at, speaker_addr, peer_addr, peer_as, action,
+                      endpoint, color, preference, bsid, segment_list, distinguisher
+               FROM srpolicy_events
+               ORDER BY occurred_at DESC
+               LIMIT {limit}"#
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map([], |row| {
+            Ok(serde_json::json!({
+                "occurred_at":  row.get::<_,String>(0)?,
+                "speaker_addr": row.get::<_,String>(1)?,
+                "peer_addr":    row.get::<_,String>(2)?,
+                "peer_as":      row.get::<_,u32>(3)?,
+                "action":       row.get::<_,String>(4)?,
+                "endpoint":     row.get::<_,Option<String>>(5)?,
+                "color":        row.get::<_,Option<u32>>(6)?,
+                "preference":   row.get::<_,Option<u32>>(7)?,
+                "bsid":         row.get::<_,Option<String>>(8)?,
+                "segment_list": row.get::<_,Option<String>>(9)?,
+                "distinguisher": row.get::<_,Option<u32>>(10)?,
+            }))
+        })?.filter_map(|r| r.ok()).collect();
+        Ok(rows)
+    }
+
+    /// SR Policy list filtered by peer address
+    pub fn srpolicy_by_peer(&self, peer_addr: &str, limit: usize) -> Result<Vec<serde_json::Value>> {
+        let locked = self.store.lock().unwrap();
+        let conn = locked.conn();
+        let table_exists: bool = conn.query_row(
+            "SELECT COUNT(*) > 0 FROM information_schema.tables WHERE table_name = 'srpolicy_events'",
+            [], |row| row.get(0),
+        ).unwrap_or(false);
+        if !table_exists { return Ok(Vec::new()); }
+        let sql = format!(
+            r#"SELECT occurred_at, speaker_addr, peer_addr, peer_as, action,
+                      endpoint, color, preference, bsid, segment_list, distinguisher
+               FROM srpolicy_events
+               WHERE peer_addr = '{peer_addr}'
+               ORDER BY occurred_at DESC
+               LIMIT {limit}"#
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map([], |row| {
+            Ok(serde_json::json!({
+                "occurred_at":  row.get::<_,String>(0)?,
+                "speaker_addr": row.get::<_,String>(1)?,
+                "peer_addr":    row.get::<_,String>(2)?,
+                "peer_as":      row.get::<_,u32>(3)?,
+                "action":       row.get::<_,String>(4)?,
+                "endpoint":     row.get::<_,Option<String>>(5)?,
+                "color":        row.get::<_,Option<u32>>(6)?,
+                "preference":   row.get::<_,Option<u32>>(7)?,
+                "bsid":         row.get::<_,Option<String>>(8)?,
+                "segment_list": row.get::<_,Option<String>>(9)?,
+                "distinguisher": row.get::<_,Option<u32>>(10)?,
+            }))
+        })?.filter_map(|r| r.ok()).collect();
+        Ok(rows)
+    }
+
+    /// AS-path graph data for Sankey rendering (RV6-5)
+    /// Returns { nodes: [{id, label}], links: [{source, target, value}] }
+    pub fn aspath_graph(&self, filter_asn: Option<u32>, peer: Option<&str>, limit: usize) -> Result<serde_json::Value> {
+        let locked = self.store.lock().unwrap();
+        let conn = locked.conn();
+        let peer_clause = peer.map(|p| format!("AND peer_addr = '{p}'")).unwrap_or_default();
+        let asn_clause  = filter_asn.map(|a| format!("AND as_path LIKE '%{a}%'")).unwrap_or_default();
+        let sql = format!(
+            r#"SELECT as_path FROM route_events
+               WHERE action = 'announce' AND as_path IS NOT NULL AND as_path <> ''
+               {peer_clause} {asn_clause}
+               ORDER BY occurred_at DESC
+               LIMIT {limit}"#
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        // Build edge-count map from consecutive ASN pairs
+        let mut edge_counts: std::collections::HashMap<(u32, u32), u64> = std::collections::HashMap::new();
+        let _ = stmt.query_map([], |row| {
+            let path: String = row.get(0)?;
+            let asns: Vec<u32> = path.split_whitespace()
+                .filter_map(|s| s.parse().ok())
+                .collect();
+            for pair in asns.windows(2) {
+                *edge_counts.entry((pair[0], pair[1])).or_insert(0) += 1;
+            }
+            Ok(())
+        })?.for_each(|_| {});
+
+        let mut asn_set: std::collections::HashSet<u32> = std::collections::HashSet::new();
+        for (src, dst) in edge_counts.keys() {
+            asn_set.insert(*src);
+            asn_set.insert(*dst);
+        }
+        let nodes: Vec<serde_json::Value> = asn_set.iter()
+            .map(|asn| serde_json::json!({ "id": asn.to_string(), "label": format!("AS{asn}") }))
+            .collect();
+        let links: Vec<serde_json::Value> = edge_counts.iter()
+            .map(|((src, dst), count)| serde_json::json!({
+                "source": src.to_string(),
+                "target": dst.to_string(),
+                "value":  count,
+            }))
+            .collect();
+        Ok(serde_json::json!({ "nodes": nodes, "links": links }))
+    }
+
+    /// BMP statistics counter history (RV6-5)
+    pub fn bmp_stats_history(&self, peer_addr: Option<&str>, limit: usize) -> Result<Vec<serde_json::Value>> {
+        let locked = self.store.lock().unwrap();
+        let conn = locked.conn();
+        let peer_clause = peer_addr.map(|p| format!("WHERE peer_addr = '{p}'")).unwrap_or_default();
+        let sql = format!(
+            r#"SELECT occurred_at, speaker_addr, peer_addr, counter_name, counter_value, stat_type, afi, safi
+               FROM stats_events
+               {peer_clause}
+               ORDER BY occurred_at DESC
+               LIMIT {limit}"#
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map([], |row| {
+            Ok(serde_json::json!({
+                "occurred_at":   row.get::<_,String>(0)?,
+                "speaker_addr":  row.get::<_,String>(1)?,
+                "peer_addr":     row.get::<_,String>(2)?,
+                "counter_name":  row.get::<_,String>(3)?,
+                "counter_value": row.get::<_,u64>(4)?,
+                "stat_type":     row.get::<_,Option<u16>>(5)?,
+                "afi":           row.get::<_,Option<u16>>(6)?,
+                "safi":          row.get::<_,Option<u8>>(7)?,
+            }))
+        })?.filter_map(|r| r.ok()).collect();
+        Ok(rows)
+    }
+
+    /// RPKI coverage analysis (RV6-5)
+    /// Returns what % of announced prefixes have a matching ROA.
+    pub fn rpki_coverage(&self) -> Result<serde_json::Value> {
+        let locked = self.store.lock().unwrap();
+        let conn = locked.conn();
+        let sql = r#"
+            SELECT
+                COUNT(DISTINCT prefix) AS total_prefixes,
+                SUM(CASE WHEN rpki_validity IN ('valid','invalid') THEN 1 ELSE 0 END) AS covered,
+                SUM(CASE WHEN rpki_validity = 'valid'     THEN 1 ELSE 0 END) AS valid,
+                SUM(CASE WHEN rpki_validity = 'invalid'   THEN 1 ELSE 0 END) AS invalid,
+                SUM(CASE WHEN rpki_validity = 'not-found' OR rpki_validity IS NULL THEN 1 ELSE 0 END) AS not_covered
+            FROM (
+                SELECT prefix, rpki_validity,
+                       ROW_NUMBER() OVER (PARTITION BY prefix ORDER BY occurred_at DESC) AS rn
+                FROM route_events WHERE action = 'announce'
+            ) t WHERE rn = 1
+        "#;
+        let mut stmt = conn.prepare(sql)?;
+        let row = stmt.query_row([], |row| {
+            let total:       u64 = row.get(0)?;
+            let covered:     u64 = row.get(1)?;
+            let valid:       u64 = row.get(2)?;
+            let invalid:     u64 = row.get(3)?;
+            let not_covered: u64 = row.get(4)?;
+            Ok((total, covered, valid, invalid, not_covered))
+        })?;
+        let (total, covered, valid, invalid, not_covered) = row;
+        let coverage_pct = if total > 0 { covered as f64 / total as f64 * 100.0 } else { 0.0 };
+        Ok(serde_json::json!({
+            "total_prefixes":  total,
+            "covered":         covered,
+            "not_covered":     not_covered,
+            "valid":           valid,
+            "invalid":         invalid,
+            "coverage_pct":    (coverage_pct * 10.0).round() / 10.0,
+        }))
+    }
+
     /// Peer session events (up/down history)
     pub fn peer_history(&self, peer_addr: &str) -> Result<Vec<PeerEventRow>> {
         let locked = self.store.lock().unwrap();

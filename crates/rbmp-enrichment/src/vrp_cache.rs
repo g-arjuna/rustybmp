@@ -1,6 +1,5 @@
-use std::net::IpAddr;
 use std::sync::{Arc, RwLock};
-use ipnet::{IpNet, Ipv4Net, Ipv6Net};
+use ipnet::IpNet;
 use serde::{Deserialize, Serialize};
 
 /// A single Validated ROA Payload entry from the RPKI RTR feed.

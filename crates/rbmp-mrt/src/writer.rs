@@ -9,7 +9,6 @@
 
 use std::io::Write;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
-use std::time::SystemTime;
 use bytes::{BufMut, BytesMut};
 use chrono::{DateTime, Utc};
 
@@ -46,14 +45,13 @@ fn write_ipv6(buf: &mut BytesMut, addr: Ipv6Addr) {
 
 /// Write a BGP NLRI-encoded prefix (prefix-len byte + ceiling(len/8) octets).
 fn write_prefix_nlri(buf: &mut BytesMut, prefix: &rbmp_core::bgp::Prefix) -> Result<()> {
-    let (bits, octets): (u8, &[u8]) = match prefix {
+    match prefix {
         rbmp_core::bgp::Prefix::V4(net) => {
             let len = net.prefix_len();
             let addr_bytes = net.addr().octets();
             let byte_len = (len as usize + 7) / 8;
             buf.put_u8(len);
             buf.put_slice(&addr_bytes[..byte_len]);
-            return Ok(());
         }
         rbmp_core::bgp::Prefix::V6(net) => {
             let len = net.prefix_len();
@@ -61,14 +59,12 @@ fn write_prefix_nlri(buf: &mut BytesMut, prefix: &rbmp_core::bgp::Prefix) -> Res
             let byte_len = (len as usize + 7) / 8;
             buf.put_u8(len);
             buf.put_slice(&addr_bytes[..byte_len]);
-            return Ok(());
         }
         rbmp_core::bgp::Prefix::Labeled { prefix, .. }
         | rbmp_core::bgp::Prefix::Vpn { prefix, .. } => {
             return write_prefix_nlri(buf, prefix);
         }
-    };
-    let _ = (bits, octets); // unreachable but satisfies compiler
+    }
     Ok(())
 }
 

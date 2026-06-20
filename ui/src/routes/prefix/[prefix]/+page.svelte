@@ -4,7 +4,7 @@
   import { api } from '$lib/api';
   import { Shield, Clock, Network, ChevronRight, TrendingUp, TrendingDown, RefreshCw } from 'lucide-svelte';
 
-  const prefix = $page.params.prefix;
+  const prefix = $page.params.prefix!;
 
   let timeline: { bucket: string; action: string; count: number }[] = [];
   let peers: Record<string, unknown>[] = [];

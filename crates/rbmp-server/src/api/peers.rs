@@ -120,3 +120,36 @@ pub async fn peer_timeline(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(Json(json!({ "peer_addr": addr, "days": q.days, "timeline": timeline })))
 }
+
+/// GET /api/peers/{addr}/capabilities
+/// Returns the BGP capabilities negotiated with this peer.
+pub async fn peer_capabilities(
+    Path(addr):   Path<String>,
+    State(state): State<AppState>,
+) -> Result<Json<Value>, StatusCode> {
+    let rib = state.rib.read().await;
+    let ip  = addr.parse().map_err(|_| StatusCode::BAD_REQUEST)?;
+    for s in rib.speakers() {
+        if let Some(p) = s.peers.get(&ip) {
+            let caps: Vec<Value> = p.capabilities.iter().map(|c| {
+                json!({
+                    "code": c.code(),
+                    "name": format!("{:?}", c),
+                })
+            }).collect();
+            return Ok(Json(json!({
+                "peer_addr":    addr,
+                "peer_as":      p.peer_as,
+                "capabilities": caps,
+                "hold_time":    p.hold_time,
+                "add_path":     caps.iter().any(|c| c["name"].as_str()
+                    .map(|s| s.starts_with("AddPath")).unwrap_or(false)),
+                "four_byte_asn": caps.iter().any(|c| c["name"].as_str()
+                    .map(|s| s.starts_with("FourByteAsn")).unwrap_or(false)),
+                "llgr":         caps.iter().any(|c| c["name"].as_str()
+                    .map(|s| s.starts_with("LongLivedGracefulRestart")).unwrap_or(false)),
+            })));
+        }
+    }
+    Err(StatusCode::NOT_FOUND)
+}

@@ -1,4 +1,3 @@
-use std::net::IpAddr;
 use std::time::Duration;
 use anyhow::{anyhow, Result};
 use bytes::{Buf, BytesMut};

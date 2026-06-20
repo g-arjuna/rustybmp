@@ -7,6 +7,7 @@
 /// If those tables don't exist yet, returns an empty graph.
 use axum::{extract::{Query, State}, Json};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use crate::state::AppState;
 
@@ -131,4 +132,86 @@ fn build_graph(state: &AppState, protocol_filter: Option<&str>) -> TopologyGraph
 
 fn empty_graph() -> TopologyGraph {
     TopologyGraph { nodes: Vec::new(), links: Vec::new() }
+}
+
+// ─── BGP-LS path query (RV6-5) ───────────────────────────────────────────────
+
+#[derive(Deserialize)]
+pub struct PathQuery {
+    pub from: Option<String>,
+    pub to:   Option<String>,
+}
+
+/// GET /api/bgpls/path?from={router_id}&to={router_id}
+/// Returns shortest IGP path between two router-IDs using BGP-LS link metrics.
+pub async fn bgpls_path(
+    State(state): State<AppState>,
+    Query(params): Query<PathQuery>,
+) -> Json<Value> {
+    let from = params.from.unwrap_or_default();
+    let to   = params.to.unwrap_or_default();
+    if from.is_empty() || to.is_empty() {
+        return Json(serde_json::json!({
+            "error": "from and to query params required",
+        }));
+    }
+
+    let graph = build_graph(&state, None);
+    let path  = dijkstra_path(&graph, &from, &to);
+
+    let found = path.is_some();
+    Json(serde_json::json!({
+        "from":   from,
+        "to":     to,
+        "path":   path.unwrap_or_default(),
+        "found":  found,
+    }))
+}
+
+/// Simple Dijkstra over the BGP-LS topology using igp_metric as edge weight.
+fn dijkstra_path(graph: &TopologyGraph, src: &str, dst: &str) -> Option<Vec<String>> {
+    use std::collections::{BinaryHeap, HashMap};
+    use std::cmp::Reverse;
+
+    // Build adjacency list from links
+    let mut adj: HashMap<&str, Vec<(&str, u32)>> = HashMap::new();
+    for link in &graph.links {
+        let w = link.igp_metric.unwrap_or(1);
+        adj.entry(&link.source).or_default().push((&link.target, w));
+        adj.entry(&link.target).or_default().push((&link.source, w));
+    }
+
+    let mut dist: HashMap<&str, u32> = HashMap::new();
+    let mut prev: HashMap<&str, &str> = HashMap::new();
+    let mut heap: BinaryHeap<Reverse<(u32, &str)>> = BinaryHeap::new();
+
+    dist.insert(src, 0);
+    heap.push(Reverse((0, src)));
+
+    while let Some(Reverse((cost, node))) = heap.pop() {
+        if node == dst { break; }
+        if cost > *dist.get(node).unwrap_or(&u32::MAX) { continue; }
+        for &(neighbor, weight) in adj.get(node).unwrap_or(&vec![]) {
+            let next_cost = cost + weight;
+            let entry = dist.entry(neighbor).or_insert(u32::MAX);
+            if next_cost < *entry {
+                *entry = next_cost;
+                prev.insert(neighbor, node);
+                heap.push(Reverse((next_cost, neighbor)));
+            }
+        }
+    }
+
+    if !dist.contains_key(dst) { return None; }
+
+    let mut path = Vec::new();
+    let mut cur = dst;
+    path.push(cur.to_string());
+    while let Some(&p) = prev.get(cur) {
+        path.push(p.to_string());
+        cur = p;
+        if cur == src { break; }
+    }
+    path.reverse();
+    if path.first().map(|s| s.as_str()) == Some(src) { Some(path) } else { None }
 }

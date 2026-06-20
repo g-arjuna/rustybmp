@@ -1,90 +1,100 @@
 # RUSTYBMP — Project Context Reference
-## Updated: 2026-06-20 | RV5 Sprint | Retain in Claude Project
+## Updated: 2026-06-20 | RV7 Sprint | Retain in Claude Project
 
 ---
 
-## Project status: RV4 complete (7 crates, Svelte UI, ML pipeline, full security)
+## Current State: RV6 complete (77 tests, 0 warnings, 0 npm errors)
 
-### Workspace crates (post-RV4)
+### Crates (8 total)
 ```
-rbmp-core         — BMP RFC7854+8671+9069+9972 + BGP EVPN(1-11)+SR Policy+BGP-LS full+Flowspec+RTC+SRv6+VPLS
-rbmp-rib          — RIB + LLGR + YAML filter DSL (expression parser in RV5)
-rbmp-store        — DuckDB + retention (hourly sweep) + Parquet export API
-rbmp-server       — TCP recv + JWT auth + TLS + HA (Redis) + Kafka + DNS + Proxy + Collector listener
-rbmp-enrichment   — RTR RPKI client (VrpCache)
+rbmp-core         — RFC7854+8671+9069+9972+EVPN(1-11)+SR Policy+BGP-LS+Flowspec+RTC+
+                    SRv6 uSID+VPLS+MCAST-VPN RFC6514(1-7)+BGPsec_Path parse(type30)+ASPA
+rbmp-rib          — RIB+LLGR+YAML filter DSL+filter_expr+RouteCtx scaffold (Roto embed RV7)
+rbmp-store        — DuckDB+retention+Parquet+srpolicy_events+aspa_validations+composite indexes
+rbmp-server       — JWT auth+TLS+HA+Kafka+DNS+Proxy+Collector+18 new API endpoints in RV6
+rbmp-enrichment   — RPKI RTR client+VrpCache+ASPA validate_as_path
 rbmp-kafka        — Kafka output (rdkafka, lz4)
-rbmp-mrt          — MRT RFC 6396 reader/writer
-rbmp-nats         — NATS output (async-nats)
+rbmp-mrt          — MRT RFC 6396
+rbmp-nats         — NATS output
 ```
 
 ### Python (bmppy/)
-- rbmppy: client, stream, models, analytics (Z-score+hijack+leak+flap), rpki, internet, detectors, parquet, topology
-- ml: train_route_anomaly (IsolationForest), topology_snapshot (to_pyg stub), parquet_store
+- rbmppy: client, stream, models, analytics, rpki, internet, detectors, parquet, topology
+- ml: train_route_anomaly (IsolationForest), topology_snapshot, parquet_store
 
-### UI (Svelte 5, 5 pages)
-- Dashboard: stat cards + live SSE feed
-- Peers: table with search
-- Prefixes: live route table
-- Topology: D3 BGP-LS force-directed graph
-- Alerts: SSE-backed alert list
+### UI (SvelteKit, 15+ pages)
+ALL PAGES IMPLEMENTED in RV6:
+Dashboard, Peers, Peer Detail, Prefixes, Prefix Explorer, Topology, AS Paths,
+RPKI, RPKI Coverage, Policy, SR Policy, BGP-LS Path, Filters, Onboarding,
+ML Insights, BMP Stats, Alerts
 
----
-
-## Confirmed out of scope (RV6)
-- Active BGP session connector (requires full BGP FSM, cross-project with Rotonda)
-- BGPsec path validation (requires RPKI router certs + per-UPDATE crypto)
-- MCAST-VPN full RFC 6514 type decode (stub arm in bgp/types.rs preserves raw bytes)
+Components: TimelineChart (D3), AsnSankey (d3-sankey), VirtualTable, MetricCard, RpkiBadge
+SSE client: sse.ts with RAF batching + exponential-backoff reconnect
 
 ---
 
-## RV5 priorities
-
-### P0 — Filter expression language (closes Rotonda gap)
-- `filter_expr.rs`: Expr AST + RouteCtx + eval()
-- `filter.pest`: PEG grammar via pest crate
-- YAML `expr:` field: `"rpki == 'invalid' AND prefix_len > 24"`
-- Hot-reload via inotify (notify crate)
-
-### P0 — ML completions
-- `topology_snapshot.to_pyg()` — HeteroData edge tensors
-- `train_bgp_stgnn.py` — GATv2-GRU STGNN (NEW)
-- `export_prefix_aggregates()` — windowed aggregation in parquet.py
-- Fix IsolationForest: use per-prefix aggregated features, not per-event rows
-- `ml_anomalies` DuckDB table + API + UI page
-
-### P0 — UI: Prefix Explorer
-- `/ui/src/routes/prefix/[prefix]/+page.svelte`
-- Announcement timeline + AS path per peer + event history + enrichment
-
-### P1 — Device Onboarding Wizard
-- Register speaker + BMP config snippet generator (XRD, Junos, SRL, FRR)
-- BMP connection test endpoint
-- EOR onboarding progress tracker
-
-### P1 — Missing UI pages
-- AS Path Visualizer (D3 DAG)
-- RPKI Analysis page
-- Policy Analysis (pre vs post-policy diff)
-- Peer health timeline
-- BMP Stats viewer (RFC 9972)
-- SR Policy view
-
-### P2 — Operational improvements
-- SR Policy events DuckDB table (was deferred from RV3-1)
-- Topology graph TTL cache (60s)
-- AsTopology using distinct AS pairs query
+## RV6 Key Decisions to Remember
+- D15: RouteCtx scaffold committed, Roto JIT embed DEFERRED to RV7
+- D16: YAML DSL kept alongside RouteCtx through RV7 cutover
+- D17: filter_reload uses spawn_blocking + explicit RwLockWriteGuard drop
+- D18: AsnSankey uses (sankey as any)() — d3-sankey type constraints too restrictive
+- D19: All runes-mode pages use $derived (not $:)
+- D20: @types/node installed in UI devDependencies
+- D21: vite.config uses @sveltejs/kit/vite not @sveltejs/vite-plugin-svelte
+- D22: topology N type has fx?: number|null; fy?: number|null for drag pinning
 
 ---
 
-## RV4 decisions to remember
-- JWT HS256, config-gated (disabled by default)
-- TLS via rustls + tokio-rustls, build_acceptor() returns Option<TlsAcceptor>
-- HA: Redis SETNX, AtomicBool shared leader flag, always-leader when disabled
-- Retention: hourly sweep, skips first tick (no sweep on startup)
-- Parquet export: ALLOWED_TABLES whitelist prevents SQL injection
+## RV7 Themes
 
-## Filter gap vs Rotonda
-- Our YAML DSL: linear scan, fixed predicates, no expressions
-- Our RV5 addition: PEG-parsed expressions via pest (AND/OR/NOT, comparisons, IN sets)
-- Rotonda Roto: compiled to machine code, more powerful, still no loops
-- Gap remaining after RV5: multi-RIB routing (different RIBs per filter result) — RV6
+### Theme 1: Roto JIT (P0)
+- RouteCtx scaffold in roto_ctx.rs READY — just wire roto = "0.11" crate
+- build_roto_runtime() → register all fields + community_has/as_path_contains/prefix_in_range
+- RotoFilterEngine: load() JIT-compiles via cranelift, reload() hot-reloads
+- config/filters.roto: default bogon+RPKI+OTC+blackhole filter
+- filter_watcher.rs: inotify → trigger reload on file change
+- YAML DSL: keep as fallback with deprecation warning
+
+### Theme 2: Path Status TLV (P0)
+- draft-ietf-grow-bmp-path-marking-tlv-05 (May 2026)
+- 12 status bits: Invalid/Best/Nonselected/Primary/Backup/Non-installed/
+  Best-external/Add-Path/Filtered-inbound/Filtered-outbound/Stale/Suppressed
+- 11 reason codes: 0x0001-0x000B
+- New: path_markings DuckDB table (status, reason, status_label, reason_label)
+- TLV type code is IANA TBD — make configurable in config
+- UI: Path Pipeline (horizontal stages per prefix)
+- UI: Redundancy Health Matrix (prefix × peer grid, filter by <2 active paths)
+- UI: Max-prefix Fuel Gauge (RFC 9972 type 30 + linear regression ETA)
+
+### Theme 3: SSH Policy Fetch (P0)
+- vault.rs: COPY from bonsai credentials.rs, rename env var, add SshFetch
+- policy_fetch_handler: same spawn pattern as bonsai bootstrap_device_handler
+- Credentials as env vars ONLY (never CLI args or HTTP body)
+- policy_fetcher.py: focused subset of bonsai bootstrap_agent.py
+  - Genie testbed for Cisco/Junos/Arista (same testbed_dict construction)
+  - Paramiko for Nokia SRL/FRR (same fallback pattern)
+  - 3 show commands per vendor (policy structure + statistics + neighbor)
+- rbmppy/policy/: 5-tier parser ecosystem (Genie/Batfish/OpenConfig/TextFSM/BMP)
+- policy_configs DuckDB table
+- UI: credential manager + "Fetch from Router" button on /policy page
+
+### Theme 4: BGPsec Full Validation (P2)
+- Parse done in RV6 (type 30 attribute, raw signature blocks stored)
+- RV7 adds: router cert fetch + ECDSA P-256 via ring crate
+- bgpsec_validations DuckDB table
+
+### Theme 5: Topology Scale + Convergence (P1-P2)
+- Adaptive rendering: force (<100) / hierarchical (100-1000) / clustered (>1000)
+- BGP convergence event detection (PeerDown→withdrawals→EOR→measurement)
+- convergence_events DuckDB table + /api/convergence endpoint
+
+---
+
+## Protocol Coverage After RV7
+Complete: RFC7854, 8671, 9069, 9972, 7432 EVPN, 5575 Flowspec, 7752 BGP-LS,
+6514 MCAST-VPN, 8205 BGPsec-parse, 9319 ASPA, 9514 SRv6, 4761 VPLS,
+5549 unnumbered, draft-bmp-path-marking-tlv-05 (NEW RV7)
+RV7 adds full BGPsec validation
+
+## Upload pattern
+Next diff: rv7_all_changes.patch

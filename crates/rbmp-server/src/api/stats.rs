@@ -37,3 +37,22 @@ pub async fn rpki_stats(
         "rtr_serial": state.enrichment.rtr_serial(),
     }))
 }
+
+#[derive(Deserialize)]
+pub struct BmpStatsHistoryQuery {
+    pub peer:  Option<String>,
+    #[serde(default = "default_n")]
+    pub limit: usize,
+}
+
+/// GET /api/bmpstats/history?peer={addr}&limit=200
+/// Returns historical BMP stats counter snapshots from DuckDB.
+pub async fn bmp_stats_history(
+    Query(q):     Query<BmpStatsHistoryQuery>,
+    State(state): State<AppState>,
+) -> Result<Json<Value>, StatusCode> {
+    let rows = state.queries
+        .bmp_stats_history(q.peer.as_deref(), q.limit)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(json!({ "stats": rows, "count": rows.len() })))
+}

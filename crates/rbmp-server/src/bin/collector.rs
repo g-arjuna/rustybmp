@@ -29,7 +29,6 @@ use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn, debug};
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
-use rbmp_core::bmp::parser::parse_bmp_message;
 use rbmp_core::collector_protocol::{CollectorEnvelope, COLLECTOR_PORT, write_frame};
 
 // ─── CLI / config ─────────────────────────────────────────────────────────────

@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 use std::net::IpAddr;
-use ipnet::{IpNet, Ipv4Net, Ipv6Net};
+use ipnet::IpNet;
 use serde::{Deserialize, Serialize};
 use rbmp_core::bgp::types::{PathAttributes, Prefix};
 use crate::filter_expr::{Expr, RouteCtx, parse_expr};

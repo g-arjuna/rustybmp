@@ -1,5 +1,5 @@
 use axum::{extract::{Path, Query, State}, Json, http::StatusCode};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::{json, Value};
 use crate::state::AppState;
 
@@ -163,6 +163,17 @@ pub async fn policy_delta(
         .policy_delta(peer_addr)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(Json(delta))
+}
+
+/// GET /api/rpki/coverage
+/// Returns RPKI coverage statistics: % of prefixes covered by ROAs, breakdown by origin AS.
+pub async fn rpki_coverage(
+    State(state): State<AppState>,
+) -> Result<Json<Value>, StatusCode> {
+    let coverage = state.queries
+        .rpki_coverage()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(coverage))
 }
 
 /// Decode percent-encoded slashes in prefix path segments (e.g. "192.0.2.0%2F24" → "192.0.2.0/24")

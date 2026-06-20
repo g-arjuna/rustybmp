@@ -1,4 +1,4 @@
-use crate::{Error, Result};
+use crate::Result;
 use super::types::{PrefixSid, Srv6L3Service, Srv6SubSubTlv};
 
 /// Parse a BGP Prefix-SID attribute (RFC 8669, type 40).

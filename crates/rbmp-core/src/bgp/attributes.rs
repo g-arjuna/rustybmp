@@ -1,4 +1,4 @@
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::net::{IpAddr, Ipv4Addr};
 use bytes::Buf;
 use crate::{Error, Result};
 use super::types::*;
@@ -10,9 +10,9 @@ use super::bgpls::{decode_bgpls_reach, decode_bgpls_unreach, parse_bgpls_attribu
 use super::srpolicy::{decode_srpolicy_nlri, decode_rtc_nlri, SrPolicyNlri, RtcNlri};
 
 // ─── Attribute flag bits ──────────────────────────────────────────────────────
-const FLAG_OPTIONAL:   u8 = 0x80;
-const FLAG_TRANSITIVE: u8 = 0x40;
-const FLAG_PARTIAL:    u8 = 0x20;
+#[allow(dead_code)] const FLAG_OPTIONAL:   u8 = 0x80;
+#[allow(dead_code)] const FLAG_TRANSITIVE: u8 = 0x40;
+#[allow(dead_code)] const FLAG_PARTIAL:    u8 = 0x20;
 const FLAG_EXT_LEN:    u8 = 0x10;
 
 /// Parse all path attributes from buf, returning a PathAttributes struct.
@@ -167,6 +167,12 @@ pub fn parse_path_attributes(mut buf: impl Buf) -> Result<PathAttributes> {
             // Type 40: BGP_PREFIX_SID (RFC 8669)
             40 => {
                 attrs.prefix_sid = parse_prefix_sid(attr_data.as_ref()).ok();
+            }
+            // Type 30: BGPsec_Path (RFC 8205, parse-only for RV6)
+            // Structure: Sequence of (pCount(1) + flags(1) + ASN(4) + sig_block(variable))
+            // We capture only the signing ASN sequence for display/analysis.
+            30 => {
+                attrs.bgpsec_path = Some(parse_bgpsec_path(attr_data.as_ref()));
             }
             // Everything else preserved as raw
             _ => {
@@ -389,4 +395,64 @@ fn parse_tunnel_subtlvs(buf: &[u8]) -> (Option<IpAddr>, Option<u32>) {
         }
     }
     (endpoint, color)
+}
+
+// ─── BGPsec_Path parser (RFC 8205, RV6-2) ────────────────────────────────────
+
+/// Parsed BGPsec_Path attribute — parse-only, no validation for RV6.
+/// Full cryptographic validation requires RPKI router certificates (future work).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct BgpsecPath {
+    /// Secure AS numbers extracted from the Secure_Path segment
+    pub signing_asns: Vec<u32>,
+    /// Number of signature blocks (typically 1 or 2)
+    pub sig_block_count: u8,
+    /// Raw attribute bytes preserved for future validation
+    pub raw: Vec<u8>,
+}
+
+/// Parse a BGPsec_Path attribute (RFC 8205 §3.2).
+///
+/// Structure:
+///   Secure_Path (variable):
+///     Secure_Path_Segment* = pCount(1) + flags(1) + AS Number(4)
+///   Signature_Block* (variable):
+///     Algo Suite Identifier(1) + Signature_Segment* ...
+///
+/// For RV6 we extract only the signing ASN sequence and block count.
+pub fn parse_bgpsec_path(buf: &[u8]) -> BgpsecPath {
+    let raw = buf.to_vec();
+    let mut signing_asns = Vec::new();
+    let mut sig_block_count = 0u8;
+
+    if buf.len() < 2 {
+        return BgpsecPath { signing_asns, sig_block_count, raw };
+    }
+
+    // Secure_Path length is a 2-byte field at the start
+    let secure_path_len = u16::from_be_bytes([buf[0], buf[1]]) as usize;
+    if buf.len() < 2 + secure_path_len {
+        return BgpsecPath { signing_asns, sig_block_count, raw };
+    }
+
+    // Parse Secure_Path segments (each 6 bytes: pCount + flags + ASN)
+    let mut pos = 2;
+    let secure_path_end = 2 + secure_path_len;
+    while pos + 6 <= secure_path_end {
+        let _pcount = buf[pos];
+        let _flags  = buf[pos + 1];
+        let asn = u32::from_be_bytes([buf[pos+2], buf[pos+3], buf[pos+4], buf[pos+5]]);
+        signing_asns.push(asn);
+        pos += 6;
+    }
+
+    // Count Signature_Blocks — each starts with 2-byte length + 1-byte algo
+    pos = secure_path_end;
+    while pos + 3 <= buf.len() {
+        let block_len = u16::from_be_bytes([buf[pos], buf[pos+1]]) as usize;
+        sig_block_count += 1;
+        pos += 2 + block_len;
+    }
+
+    BgpsecPath { signing_asns, sig_block_count, raw }
 }

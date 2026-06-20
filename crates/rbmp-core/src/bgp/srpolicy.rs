@@ -169,7 +169,7 @@ fn parse_segments(buf: &[u8]) -> Result<Vec<Segment>> {
         let seg_len  = buf[pos] as usize; pos += 1;
         // Each segment: type(1) + length(1) + flags(1) + reserved(1) + type-specific
         if seg_len < 2 || pos + seg_len - 2 > buf.len() { break; }
-        let flags    = if pos < buf.len() { buf[pos] } else { 0 }; pos += 1;
+        let _flags   = if pos < buf.len() { buf[pos] } else { 0 }; pos += 1;
         let _rsvd    = if pos < buf.len() { buf[pos] } else { 0 }; pos += 1;
         let data_len = seg_len.saturating_sub(2);
         if pos + data_len > buf.len() { break; }

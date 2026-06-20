@@ -2,7 +2,7 @@
 
 The best BMP/BGP collector on the planet. Written in Rust.
 
-**Sprint**: RV3 complete — 49 tests, 0 failures.
+**Sprint**: RV6 complete — 77 tests, 0 failures. `cargo build --workspace` 0 warnings. `npm run check` 0 errors.
 
 ---
 
@@ -42,6 +42,7 @@ Routers (RFC 7854 BMP)                     rbmp-collector (edge, optional)
  │  rbmp-rib engine                                                │
  │    ├── Per-peer RIB + LLGR state machine (RFC 9494)             │
  │    ├── YAML filter DSL (prefix, AS, community, length)          │
+ │    ├── RouteCtx scaffold for Roto JIT filter upgrade            │
  │    └── BMP session lifecycle                                    │
  │       │                                                         │
  │       ├──────────────┬────────────────┬────────────────┐        │
@@ -57,8 +58,17 @@ Routers (RFC 7854 BMP)                     rbmp-collector (edge, optional)
  │                                                                 │
  │  rbmp-enrichment                                                │
  │    ├── RTR client → VRP cache (RFC 6810)                        │
- │    └── Per-route RPKI validation                                │
+ │    ├── ASPA validation (RFC 9319)                               │
+ │    └── Per-route RPKI annotation                                │
  └─────────────────────────────────────────────────────────────────┘
+
+ui/ (SvelteKit dashboard)
+  ├── 15 nav pages (Dashboard, Peers, Prefixes, Topology, RPKI,
+  │   Policy, AS Paths, SR Policy, BGP-LS Path, Filters,
+  │   Onboarding, ML Insights, BMP Stats, RPKI Coverage, Alerts)
+  ├── D3 components: TimelineChart, AsnSankey, force topology
+  ├── UI components: VirtualTable, MetricCard, RpkiBadge
+  └── SSE client with RAF batching + auto-reconnect
 
 bmppy/ (Python SDK)
   ├── RtrVrpCache + DetectorPipeline
@@ -117,12 +127,18 @@ bmppy/ (Python SDK)
 - [x] **BGP-LS (RFC 7752) — NLRI + full link/node/prefix attribute TLVs**
 - [x] **SR Policy NLRI SAFI 73 (RFC 9256) — segment types A-K**
 - [x] **Route Target Constraint SAFI 132 (RFC 4684)**
+- [x] **MCAST-VPN NLRI (RFC 6514) — types 1-7 decoded**
+- [x] **BGPsec_Path attribute parse (RFC 8205, type 30) — signature blocks stored**
 - [x] RPKI ROV via RTR (RFC 6810) — live VRP cache
+- [x] **ASPA validation (RFC 9319) — AS_PATH upstream provider verification**
 
-### Filter DSL (YAML)
-- [x] Match on prefix (exact / more-specific / length range)
-- [x] Match on origin AS, peer AS, community value
+### Filter Engine
+- [x] YAML filter DSL — prefix, origin AS, peer AS, community, AS path regex, RPKI state, length range
 - [x] Actions: `accept`, `reject`, `tag`
+- [x] Hot-reload via `POST /api/filters/reload`
+- [x] Filter test endpoint: `POST /api/filters/test` (evaluates synthetic route, returns verdict + ns)
+- [x] Filter stats: `GET /api/filters/stats` (accept/reject/error counters)
+- [x] `RouteCtx` scaffold in `roto_ctx.rs` — ready for Roto JIT upgrade (RV7)
 - [x] Applied at RIB ingestion (pre-storage)
 
 ### Output & Integration
@@ -140,11 +156,52 @@ bmppy/ (Python SDK)
 - [x] Top churning prefixes
 - [x] Origin AS distribution
 - [x] `collector_id` tagging on all events (multi-site)
+- [x] `srpolicy_events` table — SR Policy NLRIs with segment JSON
+- [x] `aspa_validations` table — per-route ASPA verdicts
+- [x] Composite indexes: `(prefix, occurred_at)`, `(peer_addr, counter_name, occurred_at)`
+- [x] AS path graph query (Sankey data) — `aspath_graph()`
+- [x] BMP stats history + sparklines — `bmpstats_history()`
+- [x] SR Policy list — `srpolicy_current()`
+- [x] ML anomaly queries — `ml_anomalies_recent()`
 
 ### API
-- [x] REST: `/api/speakers`, `/api/peers`, `/api/routes`
-- [x] SSE: `/api/events` — real-time stream
+- [x] REST: `/api/speakers`, `/api/peers`, `/api/routes`, `/api/prefixes`
+- [x] Prefix detail: `/api/routes/prefix/{p}/timeline|peers|convergence`
+- [x] Peer detail: `/api/peers/{addr}/timeline|capabilities`
+- [x] RPKI: `/api/rpki/analysis`, `/api/rpki/coverage`
+- [x] Policy: `/api/policy?peer=X` — pre/post RIB delta
+- [x] AS Path: `/api/aspath/graph` — Sankey node/link data
+- [x] SR Policy: `/api/srpolicy` — active policies list
+- [x] BGP-LS: `/api/bgpls/graph`, `/api/bgpls/path?from=X&to=Y`
+- [x] ML: `/api/ml/anomalies`, `/api/ml/model/status`
+- [x] Filters: `/api/filters/reload` (POST), `/api/filters/test` (POST), `/api/filters/stats`
+- [x] Stats: `/api/bmpstats/history`
+- [x] Onboarding: `/api/onboard/{addr}/validate|register|filter|confirm`
+- [x] SSE: `/api/events` — real-time stream with RAF-batched client
 - [x] Health: `/health`, `/metrics` (Prometheus)
+- [x] JWT auth middleware (optional, configurable)
+
+### UI Dashboard (SvelteKit)
+- [x] **Dashboard** — health bar, stat cards (peers up/down, RPKI%, speakers), live SSE feed
+- [x] **Peers** — peer table with state badges; click → peer detail
+- [x] **Peer Detail** (`/peers/[addr]`) — session timeline (Gantt), flap counters, event log
+- [x] **Prefixes** — route table; click → prefix explorer
+- [x] **Prefix Explorer** (`/prefix/[prefix]`) — timeline, peer AS paths, convergence, RPKI detail
+- [x] **Topology** — D3 force-directed BGP-LS graph with zoom/pan/drag
+- [x] **AS Paths** (`/aspath`) — D3 Sankey chart + path length histogram + filterable table
+- [x] **RPKI** — ROA coverage donut, invalid prefix breakdown, per-peer RPKI stats
+- [x] **RPKI Coverage** (`/rpki-coverage`) — ROA coverage for owned prefixes
+- [x] **Policy** (`/policy`) — pre/post-policy RIB delta, rejection rate visualisation
+- [x] **SR Policy** (`/srpolicy`) — active SR policies with segment details (MetricCards + VirtualTable)
+- [x] **BGP-LS Path** (`/bgpls-path`) — shortest IGP path computation between routers
+- [x] **Filters** (`/filters`) — live filter test, YAML reload, verdict counters
+- [x] **Onboarding** (`/onboard`) — 4-step wizard: validate → register → filter → confirm
+- [x] **ML Insights** (`/ml`) — anomaly feed by severity, model status panel
+- [x] **BMP Stats** (`/stats`) — RFC 9972 counter history, peer filter, bar chart
+- [x] **Alerts** — alert feed
+- [x] D3 component library: `TimelineChart`, `AsnSankey`, topology force graph
+- [x] UI component library: `VirtualTable` (virtual-scroll), `MetricCard`, `RpkiBadge`
+- [x] SSE client (`sse.ts`) — RAF batching, exponential-backoff reconnect
 
 ---
 
@@ -218,20 +275,39 @@ print(info.asn_info.name, info.visible_peers)
 ### ✅ RV2 — Protocol depth
 - Add-Path NLRI, EVPN withdraw, ExtComm, BGP-LS NLRI, RPKI RTR scaffold
 
-### ✅ RV3 — Feature parity + integration (current)
-- SR Policy SAFI 73 (RFC 9256), EVPN types 6-11, BGP-LS full TLVs
+### ✅ RV3 — Feature parity + integration
+- SR Policy SAFI 73, EVPN types 6-11, BGP-LS full TLVs
 - YAML filter DSL + LLGR state machine
 - DNS PTR enrichment + BMP proxy
-- Kafka output crate (rbmp-kafka)
-- MRT import/export crate (rbmp-mrt)
+- Kafka output crate (rbmp-kafka), MRT import/export crate (rbmp-mrt)
 - Python SDK: rpki.py + internet.py + detectors.py
 - Distributed collection: rbmp-collector + Core listener + schema collector_id
 
-### 🔲 RV4 — Scale + UI
-- Svelte 5 dashboard (live RIB table, BGP-LS topology, RPKI status)
-- Active BGP session connector (receive tables without BMP)
-- BGPsec path validation
-- HA leader election (active/passive)
+### ✅ RV4 — Scale + UI foundation
+- SvelteKit dashboard scaffold: 11 nav pages, BGP-LS D3 topology, RPKI page
+- DuckDB metrics, UI static file serving from Axum
+- MCAST-VPN stub, TLS support, Redis HA leader election
+- FRR integration tests
+
+### ✅ RV5 — UI wiring + API depth
+- Clickable prefixes + peer IPs (prefix explorer, peer detail pages)
+- Prefix timeline, peer timeline, prefix convergence, RPKI analysis APIs
+- ML anomaly schema, export aggregates, feature engineering
+- 6 new sidebar nav items scaffolded
+
+### ✅ RV6 — UI completeness + protocol + quality (current)
+- **Protocols**: ASPA (RFC 9319), BGPsec_Path parse (RFC 8205), MCAST-VPN full RFC 6514, SRv6 uSID scaffold
+- **Filter engine**: hot-reload, test endpoint, verdict counters, RouteCtx/Roto scaffold
+- **Schema**: `srpolicy_events`, `aspa_validations`, composite indexes, new query methods
+- **API**: 18 new endpoints across analytics, stats, peers, topology, ml, filters, onboard
+- **UI components**: TimelineChart (D3), AsnSankey (d3-sankey), VirtualTable, MetricCard, RpkiBadge, SSE sse.ts
+- **UI pages**: 4 new (filters, srpolicy, bgpls-path, rpki-coverage) + 5 upgraded (aspath, ml, stats, peers/[addr], +page)
+- **Quality gate**: `cargo build --workspace` 0 warnings, `npm run check` 0 errors, 77 tests
+
+### 🔲 RV7 — Roto JIT + BGPsec validation + SP scale
+- Embed Roto v0.11 (cranelift JIT) as live filter engine — replace YAML DSL
+- BGPsec full cryptographic path validation (router certs from RPKI)
+- Topology level-of-detail rendering (>500 BGP-LS nodes)
 - NATS output (edge-friendly Kafka alternative)
 - L2VPN VPLS full decode
 - BGP-LS SRv6 SID NLRI (SAFI 72)
@@ -272,17 +348,26 @@ print(info.asn_info.name, info.visible_peers)
 | RFC 4684 | Route Target Constraint SAFI 132 |
 | RFC 6810 | RPKI/RTR Protocol — VRP cache + ROV |
 | RFC 6396 | MRT Routing Information Export Format |
+| RFC 6514 | BGP Encodings for MCAST-VPN — types 1-7 |
+| RFC 8205 | BGPsec_Path attribute (type 30) — parse + store |
+| RFC 9319 | ASPA — AS Provider Authorization validation |
 
 ---
 
 ## Development
 
 ```bash
-# Run tests (49 total)
+# Run tests (77 total)
 cargo test --workspace
 
-# Check all crates
-cargo check --workspace
+# Build — must produce 0 warnings
+cargo build --workspace
+
+# UI type-check — must produce 0 errors
+cd ui && npm run check
+
+# UI dev server (proxies /api → localhost:7878)
+cd ui && npm run dev
 
 # Format + lint
 cargo fmt --all && cargo clippy --workspace

@@ -1,6 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { Radio, RefreshCw, Search } from 'lucide-svelte';
+  import AsnSankey from '$lib/AsnSankey.svelte';
+  import MetricCard from '$lib/MetricCard.svelte';
 
   type AsPathRow = {
     prefix:      string;
@@ -13,19 +15,26 @@
   };
 
   let rows: AsPathRow[] = $state([]);
+  let sankeyNodes: any[] = $state([]);
+  let sankeyLinks: any[] = $state([]);
   let loading  = $state(true);
   let error    = $state('');
   let search   = $state('');
   let limit    = $state(200);
+  let showSankey = $state(true);
 
   async function load() {
     loading = true; error = '';
     try {
       const params = new URLSearchParams({ limit: String(limit), action: 'announce' });
       if (search) params.set('prefix', search);
-      const res = await fetch(`/api/routes?${params}`);
-      const j   = await res.json() as { routes: AsPathRow[] };
-      rows = j.routes ?? [];
+      const [routeRes, graphRes] = await Promise.all([
+        fetch(`/api/routes?${params}`).then(r => r.json()),
+        fetch(`/api/aspath/graph?limit=300`).then(r => r.json()),
+      ]);
+      rows        = (routeRes as any).routes ?? [];
+      sankeyNodes = (graphRes as any).nodes  ?? [];
+      sankeyLinks = (graphRes as any).links  ?? [];
     } catch (e) {
       error = String(e);
     } finally {
@@ -35,13 +44,13 @@
   onMount(load);
 
   // AS-path length distribution
-  $: distribution = rows.reduce((acc, r) => {
+  const distribution = $derived(rows.reduce((acc: Record<number,number>, r) => {
     const len = r.as_path_len ?? 0;
     acc[len] = (acc[len] ?? 0) + 1;
     return acc;
-  }, {} as Record<number, number>);
-  $: maxLenCount = Math.max(1, ...Object.values(distribution));
-  $: sortedLens  = Object.keys(distribution).map(Number).sort((a, b) => a - b);
+  }, {} as Record<number, number>));
+  const maxLenCount = $derived(Math.max(1, ...Object.values(distribution)));
+  const sortedLens  = $derived(Object.keys(distribution).map(Number).sort((a, b) => a - b));
 
   const filtered = $derived(
     search ? rows.filter(r => r.prefix.includes(search) || (r.as_path ?? '').includes(search)) : rows
@@ -52,7 +61,7 @@
 
 <svelte:head><title>AS Path Explorer — RustyBMP</title></svelte:head>
 
-<div class="p-6 space-y-6">
+<div class="p-6 space-y-6 max-w-7xl mx-auto">
   <div class="flex items-center justify-between flex-wrap gap-3">
     <h1 class="text-2xl font-bold text-gray-100 flex items-center gap-2">
       <Radio size={22} class="text-indigo-400" /> AS Path Explorer
@@ -75,21 +84,45 @@
     <div class="bg-red-900/30 border border-red-700 text-red-300 rounded p-4 text-sm">{error}</div>
   {/if}
 
+  {#if !loading}
+    <div class="grid grid-cols-3 gap-4">
+      <MetricCard label="Routes Loaded"    value={rows.length}            color="blue" />
+      <MetricCard label="Unique ASN Pairs" value={sankeyLinks.length}     color="purple" />
+      <MetricCard label="AS Nodes"         value={sankeyNodes.length}     color="green" />
+    </div>
+  {/if}
+
   {#if !loading && sortedLens.length > 0}
-    <!-- AS path length distribution chart -->
-    <div class="bg-gray-900 border border-gray-800 rounded-lg p-5">
-      <h2 class="text-sm font-semibold text-gray-300 mb-4">AS Path Length Distribution</h2>
-      <div class="flex items-end gap-1 h-20">
-        {#each sortedLens as len}
-          {@const count = distribution[len]}
-          {@const h = Math.round(count / maxLenCount * 72)}
-          <div class="flex flex-col items-center gap-0.5 flex-1" title="len={len}: {count} routes">
-            <div class="w-full bg-indigo-500 rounded-t" style="height:{h}px"></div>
-            <span class="text-xs text-gray-600">{len}</span>
-          </div>
-        {/each}
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <!-- AS path length distribution chart -->
+      <div class="bg-gray-900 border border-gray-800 rounded-lg p-5">
+        <h2 class="text-sm font-semibold text-gray-300 mb-4">AS Path Length Distribution</h2>
+        <div class="flex items-end gap-1 h-24">
+          {#each sortedLens as len}
+            {@const count = distribution[len]}
+            {@const h = Math.round(count / maxLenCount * 88)}
+            <div class="flex flex-col items-center gap-0.5 flex-1" title="len={len}: {count} routes">
+              <div class="w-full bg-indigo-500 rounded-t" style="height:{h}px"></div>
+              <span class="text-xs text-gray-600">{len}</span>
+            </div>
+          {/each}
+        </div>
+        <div class="text-xs text-gray-600 mt-1">hop count →</div>
       </div>
-      <div class="text-xs text-gray-600 mt-1">hop count →</div>
+
+      <!-- AS Flow (Sankey) -->
+      <div class="bg-gray-900 border border-gray-800 rounded-lg p-5">
+        <div class="flex items-center justify-between mb-3">
+          <h2 class="text-sm font-semibold text-gray-300">AS Path Flow</h2>
+          <button on:click={() => showSankey = !showSankey}
+            class="text-xs text-gray-500 hover:text-gray-300">
+            {showSankey ? 'Hide' : 'Show'}
+          </button>
+        </div>
+        {#if showSankey}
+          <AsnSankey nodes={sankeyNodes} links={sankeyLinks} height={220} />
+        {/if}
+      </div>
     </div>
   {/if}
 

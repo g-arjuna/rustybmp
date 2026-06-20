@@ -1,6 +1,5 @@
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
-use chrono::{DateTime, TimeZone, Utc};
-use bytes::Buf;
+use chrono::{TimeZone, Utc};
 use crate::{Error, Result};
 use super::types::*;
 use crate::bgp::types::AfiSafi;
@@ -19,7 +18,7 @@ pub const DEFAULT_MAX_FRAME: u32 = 65535;
 /// Returns (BmpPayload, speaker_addr) — caller wraps into BmpMessage with id/received_at.
 pub fn parse_bmp_message(
     buf: &[u8],
-    speaker_addr: IpAddr,
+    _speaker_addr: IpAddr,
     max_frame: u32,
 ) -> Result<BmpPayload> {
     if buf.len() < BMP_HEADER_LEN {

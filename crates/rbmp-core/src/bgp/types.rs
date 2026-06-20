@@ -1,4 +1,4 @@
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::net::{IpAddr, Ipv4Addr};
 use std::fmt;
 use ipnet::{Ipv4Net, Ipv6Net};
 use serde::{Deserialize, Serialize};
@@ -650,6 +650,8 @@ pub struct PathAttributes {
     pub sr_policy_paths:      Vec<super::srpolicy::CandidatePath>,
     // RV3-1: Route Target Constraint NLRI (AFI=1/2, SAFI=132)
     pub rtc_nlris:            Vec<super::srpolicy::RtcNlri>,
+    // RV6-2: BGPsec_Path attribute (type 30, RFC 8205) — parse-only
+    pub bgpsec_path:          Option<super::attributes::BgpsecPath>,
     pub unknown:              Vec<RawAttribute>,
 }
 

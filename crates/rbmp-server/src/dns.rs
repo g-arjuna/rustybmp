@@ -76,6 +76,7 @@ impl DnsCache {
         cache.retain(|_, v| v.expires > now);
     }
 
+    #[allow(dead_code)]
     pub fn cache_size(&self) -> usize {
         self.inner.lock().unwrap().len()
     }

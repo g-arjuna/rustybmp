@@ -22,3 +22,31 @@ pub async fn list_anomalies(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(Json(json!({ "anomalies": anomalies, "count": anomalies.len() })))
 }
+
+/// GET /api/ml/model/status
+/// Reports the readiness of each ML model (checks for artefact files on disk).
+pub async fn model_status(
+    State(_state): State<AppState>,
+) -> Json<Value> {
+    let models = [
+        ("route_anomaly",  "bmppy/ml/models/route_anomaly.joblib"),
+        ("bgp_stgnn",      "bmppy/ml/models/bgp_stgnn.pt"),
+    ];
+    let statuses: Vec<Value> = models.iter().map(|(name, path)| {
+        let ready = std::path::Path::new(path).exists();
+        json!({
+            "model":   name,
+            "path":    path,
+            "ready":   ready,
+            "status":  if ready { "ready" } else { "not_trained" },
+        })
+    }).collect();
+
+    Json(json!({
+        "models": statuses,
+        "train_commands": {
+            "route_anomaly": "cd bmppy && python -m ml.train_route_anomaly",
+            "bgp_stgnn":     "cd bmppy && python -m ml.train_bgp_stgnn",
+        }
+    }))
+}

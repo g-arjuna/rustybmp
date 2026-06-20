@@ -1,7 +1,7 @@
 use bytes::Buf;
 use crate::{Error, Result};
 use super::types::{Afi, BgpUpdate};
-use super::nlri::{decode_nlri, decode_nlri_with_path_id};
+use super::nlri::decode_nlri_with_path_id;
 use super::attributes::parse_path_attributes;
 
 const BGP_UPDATE_TYPE: u8 = 2;

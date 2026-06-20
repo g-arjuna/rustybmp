@@ -1,7 +1,7 @@
 use std::path::Path;
-use duckdb::{Connection, Result as DuckResult};
+use duckdb::Connection;
 use anyhow::Result;
-use tracing::{info, error};
+use tracing::info;
 use crate::schema::CREATE_TABLES;
 
 /// Persistent DuckDB-backed route store

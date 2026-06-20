@@ -100,6 +100,62 @@ export const api = {
   mlAnomalies: (limit = 100, kind?: string) =>
     get<{ anomalies: unknown[]; count: number }>(
       '/api/ml/anomalies', { limit: String(limit), ...(kind ? { kind } : {}) }),
+
+  // ── RV6 new endpoints ──────────────────────────────────────────────────────
+
+  // AS Path graph (RV6-5)
+  asPathGraph: (asn?: number, peer?: string, limit = 200) =>
+    get<{ nodes: { id: string; label: string }[]; links: { source: string; target: string; value: number }[] }>(
+      '/api/aspath/graph', {
+        limit: String(limit),
+        ...(asn  ? { asn: String(asn) }   : {}),
+        ...(peer ? { peer }               : {}),
+      }),
+
+  // SR Policy (RV6-5)
+  srpolicyList: (limit = 200) =>
+    get<{ policies: unknown[]; count: number }>('/api/srpolicy', { limit: String(limit) }),
+  srpolicyByPeer: (peer: string, limit = 200) =>
+    get<{ peer: string; policies: unknown[]; count: number }>(
+      `/api/srpolicy/${encodeURIComponent(peer)}`, { limit: String(limit) }),
+
+  // BMP stats history (RV6-5)
+  bmpStatsHistory: (peer?: string, limit = 200) =>
+    get<{ stats: unknown[]; count: number }>(
+      '/api/bmpstats/history', { limit: String(limit), ...(peer ? { peer } : {}) }),
+
+  // Peer capabilities (RV6-5)
+  peerCapabilities: (addr: string) =>
+    get<{ peer_addr: string; peer_as: number; capabilities: { code: number; name: string }[]; hold_time: number; add_path: boolean; four_byte_asn: boolean; llgr: boolean }>(
+      `/api/peers/${encodeURIComponent(addr)}/capabilities`),
+
+  // RPKI coverage (RV6-5)
+  rpkiCoverage: () =>
+    get<{ total_prefixes: number; covered: number; not_covered: number; valid: number; invalid: number; coverage_pct: number }>(
+      '/api/rpki/coverage'),
+
+  // BGP-LS path (RV6-5)
+  bgplsPath: (from: string, to: string) =>
+    get<{ from: string; to: string; path: string[]; found: boolean }>(
+      '/api/bgpls/path', { from, to }),
+
+  // ML model status (RV6-5)
+  mlModelStatus: () =>
+    get<{ models: { model: string; path: string; ready: boolean; status: string }[] }>(
+      '/api/ml/model/status'),
+
+  // Filter management (RV6-1)
+  filterStats: () =>
+    get<{ filter_file: string; filter_count: number; counters: Record<string, string> }>(
+      '/api/filters/stats'),
+  filterTest: (body: { prefix: string; peer_as: number; as_path?: string; rpki?: string; communities?: string[] }) =>
+    fetch('/api/filters/test', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }).then(r => r.json()),
+  filterReload: () =>
+    fetch('/api/filters/reload', { method: 'POST' }).then(r => r.json()),
 };
 
 /** Open the SSE /api/events stream and call onEvent for each event. */

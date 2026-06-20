@@ -1,4 +1,3 @@
-use std::net::IpAddr;
 use ipnet::IpNet;
 use serde::{Deserialize, Serialize};
 use crate::vrp_cache::{RpkiState, VrpCache};

@@ -1,7 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { api } from '$lib/api';
-  import { Cpu, RefreshCw, AlertTriangle, Info } from 'lucide-svelte';
+  import { Cpu, RefreshCw, AlertTriangle, Info, CheckCircle, XCircle } from 'lucide-svelte';
+  import MetricCard from '$lib/MetricCard.svelte';
 
   type Anomaly = {
     detected_at: string;
@@ -14,8 +15,9 @@
   };
 
   let anomalies: Anomaly[] = $state([]);
-  let loading   = $state(true);
-  let error     = $state('');
+  let models:    any[]     = $state([]);
+  let loading    = $state(true);
+  let error      = $state('');
   let kindFilter = $state('');
 
   const KINDS = ['', 'churn_zscore', 'origin_change', 'path_shortening', 'flap'];
@@ -23,8 +25,12 @@
   async function load() {
     loading = true; error = '';
     try {
-      const res = await api.mlAnomalies(100, kindFilter || undefined);
-      anomalies = (res.anomalies ?? []) as Anomaly[];
+      const [anomalyRes, modelRes] = await Promise.all([
+        api.mlAnomalies(100, kindFilter || undefined),
+        api.mlModelStatus().catch(() => ({ models: [] })),
+      ]);
+      anomalies = (anomalyRes.anomalies ?? []) as Anomaly[];
+      models    = modelRes.models ?? [];
     } catch (e) {
       error = String(e);
     } finally {
@@ -47,16 +53,16 @@
 
   function fmt(dt: string) { return new Date(dt).toLocaleString(); }
 
-  $: bySeverity = {
-    critical: anomalies.filter(a => a.severity === 'critical').length,
-    warn:     anomalies.filter(a => a.severity === 'warn').length,
-    info:     anomalies.filter(a => a.severity === 'info').length,
-  };
+  const bySeverity = $derived({
+    critical: anomalies.filter((a: Anomaly) => a.severity === 'critical').length,
+    warn:     anomalies.filter((a: Anomaly) => a.severity === 'warn').length,
+    info:     anomalies.filter((a: Anomaly) => a.severity === 'info').length,
+  });
 </script>
 
 <svelte:head><title>ML Insights — RustyBMP</title></svelte:head>
 
-<div class="p-6 space-y-6">
+<div class="p-6 space-y-6 max-w-6xl mx-auto">
   <div class="flex items-center justify-between">
     <h1 class="text-2xl font-bold text-gray-100 flex items-center gap-2">
       <Cpu size={22} class="text-purple-400" /> ML Anomaly Insights
@@ -79,14 +85,37 @@
 
   {#if !loading}
     <!-- Severity summary -->
-    <div class="grid grid-cols-3 gap-4">
-      {#each [['critical','text-red-400'], ['warn','text-yellow-400'], ['info','text-blue-400']] as [sev, cls]}
-        <div class="bg-gray-900 border border-gray-800 rounded-lg p-4">
-          <div class="text-xs text-gray-500 mb-1 uppercase">{sev}</div>
-          <div class="text-3xl font-bold {cls}">{bySeverity[sev as keyof typeof bySeverity]}</div>
-        </div>
-      {/each}
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <MetricCard label="Total Anomalies" value={anomalies.length}       color="blue" />
+      <MetricCard label="Critical"        value={bySeverity.critical}    color="red" />
+      <MetricCard label="Warnings"        value={bySeverity.warn}        color="yellow" />
+      <MetricCard label="Info"            value={bySeverity.info}        color="purple" />
     </div>
+
+    <!-- Model status -->
+    {#if models.length > 0}
+      <div class="bg-gray-900 border border-gray-800 rounded-xl p-4">
+        <h2 class="text-sm font-semibold text-gray-300 mb-3">ML Model Status</h2>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {#each models as m}
+            <div class="flex items-center gap-3 bg-gray-800/50 rounded-lg px-4 py-3">
+              {#if m.ready}
+                <CheckCircle size={16} class="text-green-400 flex-shrink-0" />
+              {:else}
+                <XCircle size={16} class="text-red-400 flex-shrink-0" />
+              {/if}
+              <div class="min-w-0">
+                <div class="text-sm font-medium text-white truncate">{m.model}</div>
+                <div class="text-xs text-gray-500 truncate">{m.path}</div>
+              </div>
+              <span class="ml-auto text-xs px-2 py-0.5 rounded {m.ready ? 'bg-green-900/50 text-green-300' : 'bg-gray-700 text-gray-400'}">
+                {m.status}
+              </span>
+            </div>
+          {/each}
+        </div>
+      </div>
+    {/if}
   {/if}
 
   {#if loading}

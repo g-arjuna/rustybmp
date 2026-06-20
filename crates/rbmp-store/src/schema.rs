@@ -99,6 +99,35 @@ CREATE TABLE IF NOT EXISTS ml_anomalies (
     severity    VARCHAR                -- 'info' | 'warn' | 'critical'
 );
 
+-- SR Policy events (RV6-6, RFC 9252 / draft-ietf-idr-segment-routing-te-policy)
+CREATE TABLE IF NOT EXISTS srpolicy_events (
+    id              UUID        NOT NULL,
+    occurred_at     TIMESTAMPTZ NOT NULL,
+    speaker_addr    VARCHAR     NOT NULL,
+    peer_addr       VARCHAR     NOT NULL,
+    peer_as         UINTEGER    NOT NULL,
+    action          VARCHAR     NOT NULL,   -- 'announce' | 'withdraw'
+    endpoint        VARCHAR,               -- tunnel endpoint IP
+    color           UINTEGER,              -- color extended community value
+    preference      UINTEGER,             -- candidate path preference
+    bsid            VARCHAR,               -- binding SID (MPLS label or SRv6 SID)
+    segment_list    VARCHAR,               -- JSON array of segments
+    distinguisher   UINTEGER              -- path distinguisher
+);
+
+-- ASPA validation results (RV6-6, RFC 9319)
+CREATE TABLE IF NOT EXISTS aspa_validations (
+    id              UUID        NOT NULL,
+    occurred_at     TIMESTAMPTZ NOT NULL,
+    prefix          VARCHAR     NOT NULL,
+    peer_addr       VARCHAR     NOT NULL,
+    peer_as         UINTEGER    NOT NULL,
+    customer_asn    UINTEGER    NOT NULL,
+    provider_asns   VARCHAR,               -- JSON array of provider ASNs in path
+    result          VARCHAR     NOT NULL,  -- 'valid' | 'invalid' | 'unknown'
+    direction       VARCHAR                -- 'upstream' | 'downstream'
+);
+
 -- Indexes for common query patterns
 CREATE INDEX IF NOT EXISTS idx_route_events_prefix     ON route_events (prefix);
 CREATE INDEX IF NOT EXISTS idx_route_events_peer       ON route_events (peer_addr);
@@ -109,4 +138,11 @@ CREATE INDEX IF NOT EXISTS idx_peer_events_peer        ON peer_events (peer_addr
 CREATE INDEX IF NOT EXISTS idx_peer_events_time        ON peer_events (occurred_at);
 CREATE INDEX IF NOT EXISTS idx_route_events_collector  ON route_events (collector_id);
 CREATE INDEX IF NOT EXISTS idx_peer_events_collector   ON peer_events (collector_id);
+-- RV6-6: Composite indexes for timeline and analytics queries
+CREATE INDEX IF NOT EXISTS idx_route_events_prefix_time   ON route_events (prefix, occurred_at);
+CREATE INDEX IF NOT EXISTS idx_route_events_peer_time     ON route_events (peer_addr, occurred_at);
+CREATE INDEX IF NOT EXISTS idx_route_events_action_time   ON route_events (action, occurred_at);
+CREATE INDEX IF NOT EXISTS idx_srpolicy_peer_time         ON srpolicy_events (peer_addr, occurred_at);
+CREATE INDEX IF NOT EXISTS idx_aspa_prefix                ON aspa_validations (prefix);
+CREATE INDEX IF NOT EXISTS idx_stats_peer_time            ON stats_events (peer_addr, occurred_at);
 "#;

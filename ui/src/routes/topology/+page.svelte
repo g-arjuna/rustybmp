@@ -42,7 +42,7 @@
       .attr('orient', 'auto')
       .append('path').attr('d', 'M0,-4L8,0L0,4').attr('fill', '#4ade80');
 
-    type N = { id: string; name: string | null; protocol: string | null; x?: number; y?: number; vx?: number; vy?: number };
+    type N = { id: string; name: string | null; protocol: string | null; x?: number; y?: number; vx?: number; vy?: number; fx?: number | null; fy?: number | null };
     type L = { source: string | N; target: string | N; igp_metric: number | null };
 
     const nodes: N[] = graph.nodes.map(n => ({ ...n }));
