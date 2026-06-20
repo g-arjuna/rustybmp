@@ -21,6 +21,7 @@ rbmp-rib         = { workspace = true }
 rbmp-store       = { workspace = true }
 rbmp-enrichment  = { workspace = true }
 rbmp-kafka       = { workspace = true }
+rbmp-nats        = { workspace = true }
 
 # async
 tokio       = { workspace = true }
@@ -54,8 +55,25 @@ thiserror   = { workspace = true }
 chrono      = { workspace = true }
 uuid        = { workspace = true }
 ipnet       = { workspace = true }
-futures     = "0.3"
+futures      = "0.3"
 tokio-stream = { version = "0.1", features = ["sync"] }
 
+# DuckDB (for retention sweep direct conn use)
+duckdb         = { workspace = true }
+
+# Auth / rate limiting (RV4-1)
+jsonwebtoken   = { workspace = true }
+tower_governor = { workspace = true }
+
+# HA leader election (RV4-7 T1)
+redis          = { workspace = true }
+
+# TLS for BMP listener (RV4-1 T2)
+tokio-rustls   = { workspace = true }
+rustls         = { workspace = true }
+rustls-pemfile = { workspace = true }
+
 [dev-dependencies]
-tokio-test = "0.4"
+tokio-test  = "0.4"
+reqwest     = { workspace = true }
+metrics-exporter-prometheus = { workspace = true }

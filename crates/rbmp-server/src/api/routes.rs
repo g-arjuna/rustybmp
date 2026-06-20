@@ -1,7 +1,7 @@
 use axum::{extract::{Path, Query, State}, Json, http::StatusCode};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use super::AppState;
+use crate::state::AppState;
 
 #[derive(Debug, Deserialize)]
 pub struct RibQuery {

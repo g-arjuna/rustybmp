@@ -1,10 +1,15 @@
-mod config;
+pub mod config;
+pub mod state;
 mod receiver;
 mod archive;
 mod governor;
-mod api;
+pub mod api;
 mod dns;
 mod proxy;
+pub mod auth;
+pub mod retention;
+pub mod ha;
+pub mod tls;
 
 use std::sync::Arc;
 use std::path::Path;
@@ -19,11 +24,13 @@ use rbmp_store::query::QueryEngine;
 use rbmp_enrichment::{VrpCache, EnrichmentEngine};
 use rbmp_enrichment::rtr::RtrClient;
 use rbmp_kafka::{KafkaProducer, run_kafka_sink};
+use rbmp_nats::{NatsPublisher, run_nats_sink};
 use rbmp_core::collector_protocol::{COLLECTOR_PORT, read_frame};
 use rbmp_core::bmp::parser::{parse_bmp_message, DEFAULT_MAX_FRAME};
 use rbmp_core::bmp::BmpMessage;
 use metrics_exporter_prometheus::PrometheusHandle;
-use api::{AppState, build_router};
+use state::AppState;
+use api::build_router;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -122,6 +129,13 @@ async fn main() -> Result<()> {
         });
     }
 
+    // ── DuckDB retention sweep (RV4-2) ───────────────────────────────────────
+    {
+        let store_r  = Arc::clone(&store);
+        let retain_d = cfg.store.retain_days;
+        tokio::spawn(retention::run_retention_sweep(store_r, retain_d));
+    }
+
     // ── Kafka output sink ───────────────────────────────────────────────────
     if cfg.kafka.enabled {
         match KafkaProducer::new(&cfg.kafka.brokers, &cfg.kafka.topic_prefix) {
@@ -138,6 +152,23 @@ async fn main() -> Result<()> {
                 error!(error = %e, "Failed to create Kafka producer — Kafka output disabled");
             }
         }
+    }
+
+    // ── NATS output sink (RV4-7) ─────────────────────────────────────────────
+    if cfg.nats.enabled {
+        let server = cfg.nats.server.clone();
+        let prefix = cfg.nats.subject_prefix.clone();
+        let nats_rx  = event_tx.subscribe();
+        let cancel_n = cancel.clone();
+        tokio::spawn(async move {
+            match NatsPublisher::connect(&server, &prefix).await {
+                Ok(pub_) => {
+                    info!(server = %server, prefix = %prefix, "NATS output sink enabled");
+                    run_nats_sink(pub_, nats_rx, cancel_n).await;
+                }
+                Err(e) => error!(error = %e, "Failed to connect to NATS — NATS output disabled"),
+            }
+        });
     }
 
     // ── DNS PTR cache ─────────────────────────────────────────────────────────
@@ -260,8 +291,9 @@ async fn main() -> Result<()> {
     }
 
     // ── HTTP Server ───────────────────────────────────────────────────────────
-    let queries = Arc::new(QueryEngine::new(Arc::clone(&store)));
+    let queries  = Arc::new(QueryEngine::new(Arc::clone(&store)));
     let registry = Arc::new(cfg.registry.clone());
+    let auth_cfg = Arc::new(cfg.auth.clone());
     let state    = AppState {
         rib:        Arc::clone(&rib),
         store,
@@ -270,6 +302,7 @@ async fn main() -> Result<()> {
         enrichment: Arc::clone(&enrichment),
         registry,
         prom:       prom_handle,
+        auth_cfg,
     };
     let router  = build_router(state);
     let http_addr: std::net::SocketAddr = cfg.http.listen_addr.parse()?;

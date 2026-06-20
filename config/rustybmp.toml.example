@@ -41,6 +41,27 @@ enabled  = false
 #                      rpki-client default: 127.0.0.1:3323
 rtr_addr = "127.0.0.1:3323"
 
+[store]
+# Delete events older than N days (0 = keep forever)
+retain_days = 90
+
+[tls]
+# Enable TLS for the BMP TCP listener (RV4-1 T2)
+# Routers/collectors connect via TLS instead of plain TCP.
+enabled       = false
+cert_pem      = "certs/server.pem"
+key_pem       = "certs/server.key"
+# Optional: require mTLS from connecting clients
+# client_ca_pem = "certs/ca.pem"
+
+[ha]
+# Active/passive HA via Redis SETNX leader lease (RV4-7 T1)
+# Both instances collect; only the leader writes to DuckDB + serves HTTP API.
+enabled     = false
+redis_url   = "redis://localhost:6379"
+instance_id = "core-1"
+lease_secs  = 10
+
 [registry]
 # Known BMP speaker metadata — enriches /api/speakers with hostname/vendor/site
 # [[registry.speakers]]

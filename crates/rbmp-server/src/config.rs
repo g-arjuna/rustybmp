@@ -6,6 +6,11 @@ fn default_db_path() -> String { "runtime/routes.duckdb".into() }
 fn default_max_frame() -> u32 { 65535 }
 fn default_event_capacity() -> usize { 16384 }
 fn default_true() -> bool { true }
+fn default_jwt_secret() -> String { "change-me-32-byte-minimum-secret!!".into() }
+fn default_token_ttl() -> u64 { 86400 }
+fn default_retain_days() -> u32 { 90 }
+fn default_nats_server() -> String { "nats://localhost:4222".into() }
+fn default_nats_prefix() -> String { "rustybmp".into() }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Config {
@@ -27,6 +32,14 @@ pub struct Config {
     pub proxy:    ProxyConfig,
     #[serde(default)]
     pub kafka:    KafkaConfig,
+    #[serde(default)]
+    pub auth:     AuthConfig,
+    #[serde(default)]
+    pub nats:     NatsConfig,
+    #[serde(default)]
+    pub tls:      TlsConfig,
+    #[serde(default)]
+    pub ha:       HaConfig,
 }
 
 impl Config {
@@ -98,6 +111,9 @@ pub struct StoreConfig {
     /// Seconds between DuckDB checkpoint flushes
     #[serde(default)]
     pub checkpoint_secs:  u64,
+    /// Delete events older than N days (0 = keep forever)
+    #[serde(default = "default_retain_days")]
+    pub retain_days:      u32,
 }
 
 impl Default for StoreConfig {
@@ -107,6 +123,7 @@ impl Default for StoreConfig {
             in_memory:      false,
             event_capacity: default_event_capacity(),
             checkpoint_secs: 60,
+            retain_days:    default_retain_days(),
         }
     }
 }
@@ -230,6 +247,122 @@ impl Default for KafkaConfig {
             enabled:      false,
             brokers:      default_kafka_brokers(),
             topic_prefix: default_kafka_prefix(),
+        }
+    }
+}
+
+/// JWT authentication configuration (RV4-1)
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct AuthConfig {
+    /// Enable JWT authentication for /api/* endpoints
+    #[serde(default)]
+    pub enabled:         bool,
+    /// HS256 signing secret — must be ≥ 32 bytes in production
+    #[serde(default = "default_jwt_secret")]
+    pub jwt_secret:      String,
+    /// Token TTL in seconds (default: 86400 = 24 hours)
+    #[serde(default = "default_token_ttl")]
+    pub token_ttl_secs:  u64,
+    /// Pre-issued API keys for POST /auth (base64-encoded)
+    #[serde(default)]
+    pub api_keys:        Vec<String>,
+    /// Per-BMP-speaker message rate limit (0 = unlimited)
+    #[serde(default)]
+    pub rate_limit_msgs_per_sec: u32,
+}
+
+impl Default for AuthConfig {
+    fn default() -> Self {
+        Self {
+            enabled:                 false,
+            jwt_secret:              default_jwt_secret(),
+            token_ttl_secs:          default_token_ttl(),
+            api_keys:                Vec::new(),
+            rate_limit_msgs_per_sec: 0,
+        }
+    }
+}
+
+/// TLS configuration for BMP TCP listener (RV4-1 T2)
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct TlsConfig {
+    /// Enable TLS on the BMP listener
+    #[serde(default)]
+    pub enabled:       bool,
+    /// Path to PEM-encoded server certificate
+    #[serde(default)]
+    pub cert_pem:      String,
+    /// Path to PEM-encoded private key
+    #[serde(default)]
+    pub key_pem:       String,
+    /// Optional: PEM CA cert for mTLS client verification
+    #[serde(default)]
+    pub client_ca_pem: String,
+}
+
+impl Default for TlsConfig {
+    fn default() -> Self {
+        Self {
+            enabled:       false,
+            cert_pem:      "certs/server.pem".into(),
+            key_pem:       "certs/server.key".into(),
+            client_ca_pem: String::new(),
+        }
+    }
+}
+
+fn default_ha_redis()    -> String { "redis://localhost:6379".into() }
+fn default_ha_instance() -> String { "core-1".into() }
+fn default_ha_lease()    -> u64    { 10 }
+
+/// HA leader election configuration (RV4-7 T1)
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct HaConfig {
+    /// Enable active/passive HA mode
+    #[serde(default)]
+    pub enabled:     bool,
+    /// Redis URL for SETNX lease
+    #[serde(default = "default_ha_redis")]
+    pub redis_url:   String,
+    /// Unique instance identifier
+    #[serde(default = "default_ha_instance")]
+    pub instance_id: String,
+    /// Lease duration in seconds
+    #[serde(default = "default_ha_lease")]
+    pub lease_secs:  u64,
+}
+
+impl Default for HaConfig {
+    fn default() -> Self {
+        Self {
+            enabled:     false,
+            redis_url:   default_ha_redis(),
+            instance_id: default_ha_instance(),
+            lease_secs:  default_ha_lease(),
+        }
+    }
+}
+
+/// NATS output configuration (RV4-7)
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct NatsConfig {
+    /// Enable NATS output sink
+    #[serde(default)]
+    pub enabled:        bool,
+    /// NATS server URL (e.g. "nats://localhost:4222")
+    #[serde(default = "default_nats_server")]
+    pub server:         String,
+    /// Subject prefix (e.g. "rustybmp" → "rustybmp.route", "rustybmp.peer")
+    #[serde(default = "default_nats_prefix")]
+    pub subject_prefix: String,
+}
+
+impl Default for NatsConfig {
+    fn default() -> Self {
+        Self {
+            enabled:        false,
+            server:         default_nats_server(),
+            subject_prefix: default_nats_prefix(),
         }
     }
 }

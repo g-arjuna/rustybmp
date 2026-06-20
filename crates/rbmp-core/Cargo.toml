@@ -24,3 +24,13 @@ tokio       = { workspace = true }
 
 [dev-dependencies]
 hex-literal = "0.4"
+criterion   = { workspace = true }
+
+[[bench]]
+name    = "bmp_parse"
+path    = "../../benches/bmp_parse.rs"
+harness = false
+
+[[test]]
+name = "integration"
+path = "../../tests/integration/mod.rs"

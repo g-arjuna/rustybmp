@@ -40,4 +40,19 @@ impl RouteStore {
         self.conn.execute_batch("CHECKPOINT;")?;
         Ok(())
     }
+
+    /// Return (table_name, estimated_row_count) for each event table.
+    /// Used for Prometheus gauge metrics (RV4-2 T3).
+    pub fn table_row_counts(&self) -> Vec<(String, i64)> {
+        const TABLES: &[&str] = &[
+            "route_events", "peer_events", "speaker_events",
+            "stats_events",  "evpn_events",
+        ];
+        TABLES.iter().filter_map(|t| {
+            let sql = format!("SELECT COUNT(*) FROM {t}");
+            self.conn.query_row(&sql, [], |r| r.get::<_, i64>(0))
+                .ok()
+                .map(|n| (t.to_string(), n))
+        }).collect()
+    }
 }

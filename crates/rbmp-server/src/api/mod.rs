@@ -3,56 +3,71 @@ pub mod peers;
 pub mod events;
 pub mod stats;
 pub mod health;
+pub mod export;
+pub mod topology;
 
 use std::sync::Arc;
-use axum::{Router, routing::get};
+use axum::{Router, routing::{get, post}, middleware};
 use tower_http::cors::CorsLayer;
-use rbmp_rib::RibManager;
-use rbmp_store::RouteStore;
-use rbmp_store::query::QueryEngine;
-use rbmp_enrichment::EnrichmentEngine;
-use tokio::sync::broadcast;
-use rbmp_rib::event::RibEvent;
-use crate::config::SpeakerRegistry;
-use metrics_exporter_prometheus::PrometheusHandle;
-
-/// Shared application state for all HTTP handlers
-#[derive(Clone)]
-pub struct AppState {
-    pub rib:        Arc<tokio::sync::RwLock<RibManager>>,
-    pub store:      Arc<std::sync::Mutex<RouteStore>>,
-    pub queries:    Arc<QueryEngine>,
-    pub events:     broadcast::Sender<RibEvent>,
-    pub enrichment: Arc<EnrichmentEngine>,
-    pub registry:   Arc<SpeakerRegistry>,
-    pub prom:       PrometheusHandle,
-}
+use tower_http::services::{ServeDir, ServeFile};
+use crate::auth::{auth_handler, require_auth};
+use crate::state::AppState;
 
 /// Build the Axum router with all API routes
 pub fn build_router(state: AppState) -> Router {
-    Router::new()
-        // Health
-        .route("/health",              get(health::health))
-        .route("/metrics",             get(health::metrics))
+    let auth_cfg = Arc::clone(&state.auth_cfg);
+
+    // Protected API sub-router (JWT middleware applied when auth.enabled = true)
+    let api = Router::new()
         // Speakers
-        .route("/api/speakers",        get(peers::list_speakers))
-        .route("/api/speakers/:addr",  get(peers::get_speaker))
+        .route("/speakers",            get(peers::list_speakers))
+        .route("/speakers/{addr}",     get(peers::get_speaker))
         // Peers
-        .route("/api/peers",           get(peers::list_peers))
-        .route("/api/peers/:addr",     get(peers::get_peer))
-        .route("/api/peers/:addr/rib", get(routes::get_peer_rib))
+        .route("/peers",               get(peers::list_peers))
+        .route("/peers/{addr}",        get(peers::get_peer))
+        .route("/peers/{addr}/rib",    get(routes::get_peer_rib))
         // Routes
-        .route("/api/routes",          get(routes::list_routes))
-        .route("/api/routes/prefix",   get(routes::prefix_history))
-        .route("/api/routes/changes",  get(routes::route_changes))
+        .route("/routes",              get(routes::list_routes))
+        .route("/routes/prefix",       get(routes::prefix_history))
+        .route("/routes/changes",      get(routes::route_changes))
         // Analytics
-        .route("/api/analytics/churn", get(stats::top_churn))
-        .route("/api/analytics/origins", get(stats::as_origins))
+        .route("/analytics/churn",     get(stats::top_churn))
+        .route("/analytics/origins",   get(stats::as_origins))
         // RPKI
-        .route("/api/rpki/stats", get(stats::rpki_stats))
+        .route("/rpki/stats",          get(stats::rpki_stats))
+        // BGP-LS topology graph (RV4-6)
+        .route("/bgpls/graph",         get(topology::bgpls_graph))
+        // Parquet export (RV4-2)
+        .route("/export/parquet",      get(export::export_parquet))
         // Real-time event stream (SSE)
-        .route("/api/events",          get(events::sse_handler))
-        // State
+        .route("/events",              get(events::sse_handler))
+        // Apply JWT auth middleware
+        .route_layer(middleware::from_fn_with_state(
+            Arc::clone(&auth_cfg),
+            require_auth,
+        ));
+
+    // Serve compiled Svelte UI from ui/dist if present (RV4-3 T2)
+    let ui_dir = std::path::PathBuf::from("ui/dist");
+    let serve_ui = ui_dir.exists();
+
+    let mut router = Router::new()
+        // Health + metrics — always public
+        .route("/health",  get(health::health))
+        .route("/metrics", get(health::metrics))
+        // Auth token endpoint — public
+        .route("/auth", post(auth_handler))
+        // Mount protected API at /api
+        .nest("/api", api)
         .with_state(state)
-        .layer(CorsLayer::permissive())
+        .layer(CorsLayer::permissive());
+
+    if serve_ui {
+        router = router.nest_service(
+            "/",
+            ServeDir::new(&ui_dir)
+                .not_found_service(ServeFile::new(ui_dir.join("index.html"))),
+        );
+    }
+    router
 }

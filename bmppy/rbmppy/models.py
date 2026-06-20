@@ -27,6 +27,7 @@ class RouteEvent(BaseModel):
     large_communities: Optional[str] = None
     originator_id: Optional[str] = None
     atomic_aggregate: bool = False
+    only_to_customer: Optional[int] = None
 
     @property
     def community_list(self) -> list[str]:

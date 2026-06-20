@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use crate::{Error, Result};
 use super::types::{
     BgpLsNlri, BgpLsNlriType, BgpLsProtocol, BgpLsReachNlri, BgpLsUnreachNlri,
-    NodeDescriptor, LinkDescriptor, Prefix, RouterId,
+    NodeDescriptor, LinkDescriptor, Prefix, RouterId, Srv6SidNlri,
 };
 use ipnet::{Ipv4Net, Ipv6Net};
 
@@ -79,10 +79,90 @@ fn decode_one(nlri_type: u16, buf: &[u8]) -> Result<BgpLsNlri> {
             let is_v6 = nlri_type == 4;
             decode_prefix_nlri(protocol, identifier, rest, is_v6)
         }
+        BgpLsNlriType::Srv6Sid => {
+            decode_srv6_sid_nlri(buf[0], identifier, rest)
+        }
         BgpLsNlriType::Unknown(_) => {
             Ok(BgpLsNlri::Unknown { nlri_type, data: buf.to_vec() })
         }
     }
+}
+
+// ─── SRv6 SID NLRI decoder (RFC 9514 §2) ─────────────────────────────────────
+
+/// Decode an SRv6 SID NLRI.
+///
+/// Format (after the 9-byte common header consumed by decode_one):
+///   local_node_descriptor TLV + SRv6 SID Descriptors sub-TLVs
+///
+/// SID Descriptor TLV (type=1): SID(16) + optional SID Structure sub-TLV
+fn decode_srv6_sid_nlri(
+    protocol_id: u8,
+    identifier:  u64,
+    buf:         &[u8],
+) -> Result<BgpLsNlri> {
+    let mut cur = std::io::Cursor::new(buf);
+
+    // Local node descriptor TLV
+    let local_node = decode_node_descriptor(buf)?;
+    let nd_consumed = if buf.len() >= 4 {
+        let nd_len = u16::from_be_bytes([buf[2], buf[3]]) as usize + 4;
+        nd_len.min(buf.len())
+    } else {
+        buf.len()
+    };
+    let _ = cur.copy_to_bytes(nd_consumed.min(cur.remaining()));
+
+    let mut srv6_sid      = [0u8; 16];
+    let mut endpoint_behavior: Option<u16> = None;
+    let mut sid_structure: Option<(u8, u8, u8, u8)> = None;
+
+    // SRv6 SID Descriptor TLVs
+    while cur.remaining() >= 4 {
+        let tlv_type = cur.get_u16();
+        let tlv_len  = cur.get_u16() as usize;
+        if cur.remaining() < tlv_len { break; }
+        let tlv_data = cur.copy_to_bytes(tlv_len);
+
+        match tlv_type {
+            1 if tlv_data.len() >= 16 => {
+                // SRv6 SID Information TLV — SID(16)
+                srv6_sid.copy_from_slice(&tlv_data[..16]);
+                // Sub-sub-TLVs follow the 16-byte SID
+                let mut sub_pos = 16;
+                while sub_pos + 4 <= tlv_data.len() {
+                    let sub_type = u16::from_be_bytes([tlv_data[sub_pos], tlv_data[sub_pos+1]]);
+                    let sub_len  = u16::from_be_bytes([tlv_data[sub_pos+2], tlv_data[sub_pos+3]]) as usize;
+                    sub_pos += 4;
+                    if sub_pos + sub_len > tlv_data.len() { break; }
+                    let sub_data = &tlv_data[sub_pos..sub_pos + sub_len];
+                    sub_pos += sub_len;
+
+                    match sub_type {
+                        1 if sub_data.len() >= 2 => {
+                            // Endpoint Behavior sub-TLV
+                            endpoint_behavior = Some(u16::from_be_bytes([sub_data[0], sub_data[1]]));
+                        }
+                        2 if sub_data.len() >= 4 => {
+                            // SID Structure sub-TLV: block_len, node_len, function_len, arg_len
+                            sid_structure = Some((sub_data[0], sub_data[1], sub_data[2], sub_data[3]));
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    Ok(BgpLsNlri::Srv6Sid(Srv6SidNlri {
+        protocol_id,
+        identifier,
+        local_node,
+        srv6_sid,
+        endpoint_behavior,
+        sid_structure,
+    }))
 }
 
 // ─── Node descriptor (RFC 7752 §3.2.1) ───────────────────────────────────────

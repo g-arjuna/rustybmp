@@ -7,6 +7,7 @@ members = [
     "crates/rbmp-enrichment",
     "crates/rbmp-kafka",
     "crates/rbmp-mrt",
+    "crates/rbmp-nats",
 ]
 resolver = "2"
 
@@ -72,6 +73,25 @@ rdkafka          = { version = "0.36", features = ["cmake-build"] }
 # MessagePack (collector protocol framing)
 rmp-serde        = "1.3"
 
+# Auth / security (RV4-1)
+jsonwebtoken     = "9"
+tower_governor   = { version = "0.4", features = ["axum"] }
+
+# Benchmarks + integration tests (RV4-9)
+criterion        = { version = "0.5", features = ["html_reports"] }
+reqwest          = { version = "0.12", features = ["json"] }
+
+# HA leader election (RV4-7 T1)
+redis            = { version = "0.25", features = ["tokio-comp"] }
+
+# TLS for BMP listener (RV4-1 T2)
+tokio-rustls     = "0.26"
+rustls           = "0.23"
+rustls-pemfile   = "2"
+
+# NATS (RV4-7)
+async-nats       = "0.37"
+
 # workspace crates
 rbmp-core        = { path = "crates/rbmp-core" }
 rbmp-rib         = { path = "crates/rbmp-rib" }
@@ -79,6 +99,7 @@ rbmp-store       = { path = "crates/rbmp-store" }
 rbmp-enrichment  = { path = "crates/rbmp-enrichment" }
 rbmp-kafka       = { path = "crates/rbmp-kafka" }
 rbmp-mrt         = { path = "crates/rbmp-mrt" }
+rbmp-nats        = { path = "crates/rbmp-nats" }
 
 [profile.dev]
 opt-level       = 1

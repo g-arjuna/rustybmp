@@ -20,6 +20,8 @@ from .detectors import (
     OriginChangeDetector, RouteLeakDetector,
     MEDOscillationDetector, BGPHijackDetector,
 )
+from .parquet import export_route_features, export_peer_stability
+from .topology import BgpLsTopology, AsTopology
 
 __all__ = [
     "RustybmpClient",
@@ -59,4 +61,10 @@ __all__ = [
     "RouteLeakDetector",
     "MEDOscillationDetector",
     "BGPHijackDetector",
+    # parquet (RV4-4)
+    "export_route_features",
+    "export_peer_stability",
+    # topology (RV4-6)
+    "BgpLsTopology",
+    "AsTopology",
 ]

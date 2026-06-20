@@ -1,7 +1,7 @@
 use axum::{extract::{Query, State}, Json, http::StatusCode};
 use serde::Deserialize;
 use serde_json::{json, Value};
-use super::AppState;
+use crate::state::AppState;
 
 #[derive(Deserialize)]
 pub struct TopN { #[serde(default = "default_n")] pub n: usize }

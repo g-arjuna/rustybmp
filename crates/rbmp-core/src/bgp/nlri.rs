@@ -189,6 +189,33 @@ pub fn decode_vpn_nlri(buf: &mut impl Buf, afi: Afi) -> Result<Vec<Prefix>> {
     Ok(prefixes)
 }
 
+/// Decode VPLS NLRI (RFC 4761 §3.2.2, AFI=25 SAFI=65).
+///
+/// Format per NLRI entry:
+///   length(2) | RD(8) | VE-ID(2) | VE-Block-Offset(2) | VE-Block-Size(2) | label-base(3)
+pub fn decode_vpls_nlri(buf: &[u8]) -> Result<Vec<super::types::VplsNlri>> {
+    use super::types::VplsNlri;
+    let mut cur = std::io::Cursor::new(buf);
+    let mut result = Vec::new();
+    while cur.remaining() >= 2 {
+        let nlri_len = cur.get_u16() as usize;
+        if cur.remaining() < nlri_len { break; }
+        let nlri = cur.copy_to_bytes(nlri_len);
+        // Minimum: RD(8) + VE-ID(2) + VE-Block-Offset(2) + VE-Block-Size(2) + label(3) = 17
+        if nlri.len() < 17 { continue; }
+        let mut rd = [0u8; 8];
+        rd.copy_from_slice(&nlri[..8]);
+        let ve_id           = u16::from_be_bytes([nlri[8],  nlri[9]]);
+        let ve_block_offset = u16::from_be_bytes([nlri[10], nlri[11]]);
+        let ve_block_size   = u16::from_be_bytes([nlri[12], nlri[13]]);
+        // label base: 3 bytes, label in upper 20 bits
+        let label_raw = u32::from_be_bytes([0, nlri[14], nlri[15], nlri[16]]);
+        let label_base = label_raw >> 4;
+        result.push(VplsNlri { rd, ve_id, ve_block_offset, ve_block_size, label_base });
+    }
+    Ok(result)
+}
+
 /// Decode MP_REACH next-hop address(es).
 /// Returns a Vec because IPv6 can have link-local second hop.
 pub fn decode_next_hops(buf: &mut impl Buf, afi: Afi) -> Result<Vec<IpAddr>> {

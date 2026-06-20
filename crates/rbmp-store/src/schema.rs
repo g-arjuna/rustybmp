@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS route_events (
     large_communities VARCHAR,
     originator_id   VARCHAR,
     atomic_aggregate BOOLEAN DEFAULT false,
+    only_to_customer UINTEGER,            -- RFC 9234 OTC ASN (NULL if absent)
     collector_id    VARCHAR               -- NULL for direct BMP connections (RV3-10)
 );
 

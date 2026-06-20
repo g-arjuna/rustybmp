@@ -1,6 +1,6 @@
 use axum::{extract::{Path, State}, Json, http::StatusCode};
 use serde_json::{json, Value};
-use super::AppState;
+use crate::state::AppState;
 
 pub async fn list_speakers(State(state): State<AppState>) -> Json<Value> {
     let rib = state.rib.read().await;

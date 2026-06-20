@@ -55,11 +55,13 @@ pub enum Safi {
     MplsVpn,
     Evpn,
     BgpLs,
+    BgpLsSrv6,
     SrPolicy,
     Flowspec,
     FlowspecVpn,
     Vpls,
     RouteTargetConstraint,
+    McastVpn,
     Unknown(u8),
 }
 
@@ -73,8 +75,10 @@ impl From<u8> for Safi {
             65  => Self::Vpls,
             70  => Self::Evpn,
             71  => Self::BgpLs,
+            72  => Self::BgpLsSrv6,
             73  => Self::SrPolicy,
             128 => Self::MplsVpn,
+            129 => Self::McastVpn,
             132 => Self::RouteTargetConstraint,
             133 => Self::Flowspec,
             134 => Self::FlowspecVpn,
@@ -145,8 +149,10 @@ impl Safi {
             Self::Vpls                   => 65,
             Self::Evpn                   => 70,
             Self::BgpLs                  => 71,
+            Self::BgpLsSrv6              => 72,
             Self::SrPolicy               => 73,
             Self::MplsVpn                => 128,
+            Self::McastVpn               => 129,
             Self::RouteTargetConstraint  => 132,
             Self::Flowspec               => 133,
             Self::FlowspecVpn            => 134,
@@ -662,13 +668,15 @@ pub struct MpUnreachNlri {
 
 // ─── BGP-LS NLRI (RFC 7752) ───────────────────────────────────────────────────
 
-/// BGP-LS NLRI type codes (RFC 7752 §3.2)
+/// BGP-LS NLRI type codes (RFC 7752 §3.2 + RFC 9514 §2)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum BgpLsNlriType {
     Node,
     Link,
     Ipv4Prefix,
     Ipv6Prefix,
+    /// SRv6 SID NLRI (RFC 9514, AFI=16388 SAFI=72)
+    Srv6Sid,
     Unknown(u16),
 }
 
@@ -679,6 +687,7 @@ impl From<u16> for BgpLsNlriType {
             2 => Self::Link,
             3 => Self::Ipv4Prefix,
             4 => Self::Ipv6Prefix,
+            6 => Self::Srv6Sid,
             _ => Self::Unknown(v),
         }
     }
@@ -764,10 +773,74 @@ pub enum BgpLsNlri {
         local_node: NodeDescriptor,
         prefix:     Prefix,
     },
+    /// SRv6 SID NLRI (RFC 9514, AFI=16388 SAFI=72)
+    Srv6Sid(Srv6SidNlri),
     Unknown {
         nlri_type: u16,
         data:      Vec<u8>,
     },
+}
+
+/// SRv6 SID NLRI (RFC 9514 §2).
+/// Carries a 128-bit SRv6 SID with its endpoint behavior and SID structure.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Srv6SidNlri {
+    pub protocol_id:   u8,
+    pub identifier:    u64,
+    pub local_node:    NodeDescriptor,
+    /// The 128-bit SRv6 SID value
+    pub srv6_sid:      [u8; 16],
+    /// Endpoint behavior code (RFC 8986)
+    pub endpoint_behavior: Option<u16>,
+    /// SID structure TLV (locator_block_len, locator_node_len, function_len, argument_len)
+    pub sid_structure: Option<(u8, u8, u8, u8)>,
+}
+
+impl Srv6SidNlri {
+    /// Human-readable endpoint behavior name per RFC 8986 §7
+    pub fn behavior_name(b: u16) -> &'static str {
+        match b {
+            1    => "End",
+            2    => "End.X",
+            3    => "End.T",
+            4    => "End.DX6",
+            5    => "End.DX4",
+            6    => "End.DT6",
+            7    => "End.DT46",
+            8    => "End.DT4",
+            9    => "End.B6.Encaps",
+            10   => "End.BM",
+            0x41 => "End.X (PSP)",
+            0x48 => "End.OP",
+            0x49 => "End.Otp",
+            _    => "Unknown",
+        }
+    }
+
+    /// Format the 128-bit SID as a colon-separated hex string
+    pub fn sid_string(&self) -> String {
+        self.srv6_sid
+            .chunks(2)
+            .map(|c| format!("{:02x}{:02x}", c[0], c[1]))
+            .collect::<Vec<_>>()
+            .join(":")
+    }
+}
+
+/// VPLS NLRI (RFC 4761 §3.2.2, AFI=25 SAFI=65).
+/// Carries Layer-2 VPN signaling information for VPLS.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VplsNlri {
+    /// Route Distinguisher (8 bytes)
+    pub rd:              [u8; 8],
+    /// Virtual Edge ID
+    pub ve_id:           u16,
+    /// VE Block Offset
+    pub ve_block_offset: u16,
+    /// VE Block Size
+    pub ve_block_size:   u16,
+    /// MPLS label base (20-bit label in 3 bytes)
+    pub label_base:      u32,
 }
 
 /// BGP-LS reachability NLRI carried in MP_REACH (AFI=16388, SAFI=71)

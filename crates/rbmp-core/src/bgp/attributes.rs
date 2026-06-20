@@ -2,7 +2,7 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use bytes::Buf;
 use crate::{Error, Result};
 use super::types::*;
-use super::nlri::{decode_nlri, decode_labeled_nlri, decode_vpn_nlri, decode_next_hops};
+use super::nlri::{decode_nlri, decode_labeled_nlri, decode_vpn_nlri, decode_next_hops, decode_vpls_nlri};
 use super::evpn::decode_evpn_nlri;
 use super::flowspec::{decode_flowspec_nlri, FlowspecNlri};
 use super::srv6::parse_prefix_sid;
@@ -242,10 +242,14 @@ fn parse_mp_reach(buf: &[u8]) -> Result<(MpReachNlri, Option<EvpnReachNlri>, Opt
             let fs   = decode_flowspec_nlri(&remaining, ipv6).unwrap_or_default();
             (Vec::new(), None, Some(fs), None)
         }
-        Safi::BgpLs => {
+        Safi::BgpLs | Safi::BgpLsSrv6 => {
             let next_hop = next_hops.first().copied();
             let ls = decode_bgpls_reach(next_hop, &remaining).unwrap_or_else(|_| BgpLsReachNlri { next_hop, nlris: vec![] });
             (Vec::new(), None, None, Some(ls))
+        }
+        Safi::Vpls => {
+            let _vpls = decode_vpls_nlri(&remaining).unwrap_or_default();
+            (Vec::new(), None, None, None)
         }
         Safi::SrPolicy => {
             let afi_is_ipv6 = matches!(afi_safi.afi, Afi::Ipv6);
@@ -269,6 +273,10 @@ fn parse_mp_reach(buf: &[u8]) -> Result<(MpReachNlri, Option<EvpnReachNlri>, Opt
         Safi::MplsVpn => {
             let p = decode_vpn_nlri(&mut std::io::Cursor::new(&remaining), afi_safi.afi)?;
             (p, None, None, None)
+        }
+        Safi::McastVpn | Safi::MplsVpnMulticast => {
+            // RFC 6514 §4: MCAST-VPN NLRI — store raw for future type-specific decode
+            (Vec::new(), None, None, None)
         }
         _ => (Vec::new(), None, None, None),
     };

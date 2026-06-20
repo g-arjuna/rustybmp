@@ -5,7 +5,7 @@ use futures::stream::Stream;
 use tokio_stream::wrappers::BroadcastStream;
 use tokio_stream::StreamExt;
 use tracing::warn;
-use super::AppState;
+use crate::state::AppState;
 
 /// SSE endpoint — streams RibEvents as JSON server-sent events.
 /// Connect at: GET /api/events
