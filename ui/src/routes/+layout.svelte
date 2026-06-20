@@ -15,6 +15,8 @@
     { href: '/srpolicy',   label: 'SR Policy',    icon: Zap },
     { href: '/bgpls-path', label: 'BGP-LS Path',  icon: Map },
     { href: '/filters',    label: 'Filters',      icon: Filter },
+    { href: '/path-status', label: 'Path Status',  icon: GitBranch },
+    { href: '/capacity',   label: 'Capacity',      icon: TrendingUp },
     { href: '/onboard',    label: 'Onboarding',   icon: Server },
     { href: '/ml',         label: 'ML Insights',  icon: Cpu },
     { href: '/stats',      label: 'BMP Stats',    icon: BarChart2 },

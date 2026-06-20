@@ -22,7 +22,7 @@ use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 use rbmp_rib::RibManager;
 use rbmp_store::{RouteStore, writer::run_store_writer};
 use rbmp_store::query::QueryEngine;
-use rbmp_enrichment::{VrpCache, EnrichmentEngine};
+use rbmp_enrichment::{VrpCache, EnrichmentEngine, CredentialVault};
 use rbmp_enrichment::rtr::RtrClient;
 use rbmp_kafka::{KafkaProducer, run_kafka_sink};
 use rbmp_nats::{NatsPublisher, run_nats_sink};
@@ -301,6 +301,16 @@ async fn main() -> Result<()> {
     let queries  = Arc::new(QueryEngine::new(Arc::clone(&store)));
     let registry = Arc::new(cfg.registry.clone());
     let auth_cfg = Arc::new(cfg.auth.clone());
+    // RV7-V1: open or create credential vault
+    if let Some(parent) = Path::new(&cfg.vault_path).parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let vault = CredentialVault::open(&cfg.vault_path)
+        .unwrap_or_else(|e| {
+            error!(error = %e, vault = %cfg.vault_path, "vault open failed — using in-memory vault");
+            CredentialVault::open(":memory:").unwrap()
+        });
+    let policy_jobs = api::policy_fetch::new_job_registry();
     let state    = AppState {
         rib:        Arc::clone(&rib),
         store,
@@ -310,6 +320,8 @@ async fn main() -> Result<()> {
         registry,
         prom:       prom_handle,
         auth_cfg,
+        vault,
+        policy_jobs,
     };
     let router  = build_router(state);
     let http_addr: std::net::SocketAddr = cfg.http.listen_addr.parse()?;

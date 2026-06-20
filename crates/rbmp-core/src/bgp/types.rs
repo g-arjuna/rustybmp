@@ -652,6 +652,8 @@ pub struct PathAttributes {
     pub rtc_nlris:            Vec<super::srpolicy::RtcNlri>,
     // RV6-2: BGPsec_Path attribute (type 30, RFC 8205) — parse-only
     pub bgpsec_path:          Option<super::attributes::BgpsecPath>,
+    // RV7-P1: Path Status TLV (draft-ietf-grow-bmp-path-marking-tlv-05)
+    pub path_status:          Option<crate::bmp::PathStatusTlv>,
     pub unknown:              Vec<RawAttribute>,
 }
 

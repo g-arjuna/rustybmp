@@ -561,6 +561,360 @@ impl QueryEngine {
     }
 }
 
+// ─── Convergence events (RV7-UI6) ────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConvergenceEventRow {
+    pub event_id:           String,
+    pub started_at:         String,
+    pub eor_at:             Option<String>,
+    pub convergence_ms:     Option<f64>,
+    pub speaker_addr:       String,
+    pub peer_addr:          String,
+    pub trigger_type:       Option<String>,
+    pub affected_prefixes:  Option<u32>,
+    pub recovered_prefixes: Option<u32>,
+    pub unreachable_after:  Option<u32>,
+}
+
+impl QueryEngine {
+    /// Query convergence events for a peer within the last `hours` hours.
+    pub fn convergence_events(
+        &self,
+        peer_addr: Option<&str>,
+        hours:     u32,
+        limit:     u32,
+    ) -> Result<Vec<ConvergenceEventRow>> {
+        let locked  = self.store.lock().unwrap();
+        let conn    = locked.conn();
+        let peer_filter = peer_addr
+            .map(|p| format!("AND peer_addr = '{p}'"))
+            .unwrap_or_default();
+        let sql = format!(
+            r#"SELECT event_id, started_at, eor_at, convergence_ms,
+                      speaker_addr, peer_addr, trigger_type,
+                      affected_prefixes, recovered_prefixes, unreachable_after
+               FROM convergence_events
+               WHERE started_at >= NOW() - INTERVAL '{hours} hours'
+               {peer_filter}
+               ORDER BY started_at DESC
+               LIMIT {limit}"#
+        );
+        let rows = conn.prepare(&sql)?
+            .query_map([], |row| {
+                Ok(ConvergenceEventRow {
+                    event_id:           row.get(0)?,
+                    started_at:         row.get(1)?,
+                    eor_at:             row.get(2)?,
+                    convergence_ms:     row.get(3)?,
+                    speaker_addr:       row.get(4)?,
+                    peer_addr:          row.get(5)?,
+                    trigger_type:       row.get(6)?,
+                    affected_prefixes:  row.get(7)?,
+                    recovered_prefixes: row.get(8)?,
+                    unreachable_after:  row.get(9)?,
+                })
+            })?
+            .filter_map(|r| r.ok())
+            .collect();
+        Ok(rows)
+    }
+}
+
+// ─── Max-prefix capacity analytics (RV7-B4) ──────────────────────────────────
+
+/// Live prefix count + configured limit per (speaker, peer, afi_safi).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MaxPrefixRow {
+    pub speaker_addr: String,
+    pub peer_addr:    String,
+    pub peer_as:      u32,
+    pub afi_safi:     String,
+    pub live_count:   u64,
+    pub max_prefix:   u32,
+    pub used_pct:     f64,
+    pub warning_pct:  u16,
+    pub trend_per_day: Option<f64>,   // None when insufficient history
+    pub eta_days:      Option<f64>,   // days until max_prefix exhausted at current trend
+}
+
+/// One stored policy config row.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PolicyConfigRow {
+    pub fetched_at:   String,
+    pub peer_addr:    String,
+    pub speaker_addr: String,
+    pub policy_name:  String,
+    pub direction:    String,
+    pub vendor:       String,
+    pub clauses_json: String,
+    pub source:       String,
+    pub confidence:   f64,
+}
+
+impl QueryEngine {
+    /// Max-prefix capacity dashboard data.
+    ///
+    /// Joins `peer_max_prefix` (configured limits) with the current live prefix
+    /// count from `route_events` to produce fuel-gauge data for every peer.
+    ///
+    /// The 7-day trend (routes/day) and ETA to exhaustion are computed from the
+    /// `stats_events` table counter `Prefixes/Prefixes Received` when available,
+    /// falling back to 0.
+    pub fn max_prefix_capacity(&self) -> Result<Vec<MaxPrefixRow>> {
+        let locked = self.store.lock().unwrap();
+        let conn   = locked.conn();
+
+        let sql = r#"
+            WITH live AS (
+                SELECT speaker_addr, peer_addr, peer_as,
+                       CASE
+                           WHEN afi IN ('1', 'ipv4') THEN 'ipv4-unicast'
+                           WHEN afi IN ('2', 'ipv6') THEN 'ipv6-unicast'
+                           ELSE afi
+                       END AS afi_safi_norm,
+                       COUNT(DISTINCT prefix) AS live_count
+                FROM (
+                    SELECT speaker_addr, peer_addr, peer_as, prefix, afi, action,
+                           ROW_NUMBER() OVER (PARTITION BY speaker_addr, peer_addr, prefix ORDER BY occurred_at DESC) AS rn
+                    FROM route_events
+                ) t
+                WHERE rn = 1 AND action = 'announce'
+                GROUP BY speaker_addr, peer_addr, peer_as, afi_safi_norm
+            ),
+            trend AS (
+                SELECT speaker_addr, peer_addr,
+                       REGR_SLOPE(value, epoch(occurred_at)) * 86400 AS slope_per_day
+                FROM stats_events
+                WHERE name = 'Prefixes'
+                  AND occurred_at >= NOW() - INTERVAL '7 days'
+                GROUP BY speaker_addr, peer_addr
+            )
+            SELECT
+                m.speaker_addr, m.peer_addr, m.peer_as,
+                m.afi_safi, l.live_count,
+                m.max_prefix, m.warning_pct,
+                COALESCE(t.slope_per_day, 0.0) AS trend_per_day
+            FROM peer_max_prefix m
+            JOIN live l
+              ON m.speaker_addr = l.speaker_addr
+             AND m.peer_addr    = l.peer_addr
+             AND m.afi_safi     = l.afi_safi_norm
+            LEFT JOIN trend t
+              ON m.speaker_addr = t.speaker_addr
+             AND m.peer_addr    = t.peer_addr
+            ORDER BY (l.live_count::DOUBLE / m.max_prefix) DESC
+        "#;
+
+        let rows: Vec<MaxPrefixRow> = conn.prepare(sql)?
+            .query_map([], |row| {
+                let live_count: i64 = row.get(4)?;
+                let max_prefix: u32 = row.get(5)?;
+                let warning_pct: u16 = row.get(6)?;
+                let trend: f64 = row.get(7)?;
+                let live  = live_count as u64;
+                let used_pct = if max_prefix > 0 {
+                    (live as f64 / max_prefix as f64) * 100.0
+                } else { 0.0 };
+                let eta_days = if trend > 0.01 && max_prefix > live as u32 {
+                    Some((max_prefix as f64 - live as f64) / trend)
+                } else { None };
+                Ok(MaxPrefixRow {
+                    speaker_addr: row.get(0)?,
+                    peer_addr:    row.get(1)?,
+                    peer_as:      row.get(2)?,
+                    afi_safi:     row.get(3)?,
+                    live_count:   live,
+                    max_prefix,
+                    used_pct,
+                    warning_pct,
+                    trend_per_day: if trend.abs() < 1e-6 { None } else { Some(trend) },
+                    eta_days,
+                })
+            })?
+            .filter_map(|r| r.ok())
+            .collect();
+        Ok(rows)
+    }
+
+    /// List policy configs, optionally filtered by peer.
+    pub fn policy_configs(&self, peer_addr: Option<&str>) -> Result<Vec<PolicyConfigRow>> {
+        let locked = self.store.lock().unwrap();
+        let conn   = locked.conn();
+        let filter = peer_addr
+            .map(|p| format!("WHERE peer_addr = '{p}'"))
+            .unwrap_or_default();
+        let sql = format!(
+            r#"SELECT fetched_at, peer_addr, speaker_addr, policy_name, direction,
+                      vendor, clauses_json, source, confidence
+               FROM policy_configs
+               {filter}
+               ORDER BY fetched_at DESC
+               LIMIT 500"#
+        );
+        let rows = conn.prepare(&sql)?
+            .query_map([], |row| {
+                Ok(PolicyConfigRow {
+                    fetched_at:   row.get(0)?,
+                    peer_addr:    row.get(1)?,
+                    speaker_addr: row.get(2)?,
+                    policy_name:  row.get(3)?,
+                    direction:    row.get(4)?,
+                    vendor:       row.get(5)?,
+                    clauses_json: row.get(6)?,
+                    source:       row.get(7)?,
+                    confidence:   row.get(8)?,
+                })
+            })?
+            .filter_map(|r| r.ok())
+            .collect();
+        Ok(rows)
+    }
+
+    /// Upsert a max-prefix limit for a peer/afi-safi.
+    pub fn upsert_max_prefix(
+        &self,
+        speaker_addr: &str,
+        peer_addr:    &str,
+        peer_as:      u32,
+        afi_safi:     &str,
+        max_prefix:   u32,
+        warning_pct:  u16,
+    ) -> Result<()> {
+        let locked = self.store.lock().unwrap();
+        let conn   = locked.conn();
+        conn.execute(
+            r#"INSERT OR REPLACE INTO peer_max_prefix
+               VALUES (NOW(), ?, ?, ?, ?, ?, ?)"#,
+            duckdb::params![speaker_addr, peer_addr, peer_as, afi_safi, max_prefix, warning_pct],
+        )?;
+        Ok(())
+    }
+}
+
+// ─── Path Status TLV query types (RV7-P3) ────────────────────────────────────
+
+/// One row from the path_markings table — latest status per prefix+peer.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PathMarkingRow {
+    pub occurred_at:  String,
+    pub speaker_addr: String,
+    pub peer_addr:    String,
+    pub peer_as:      u32,
+    pub prefix:       String,
+    pub afi:          String,
+    pub path_status:  u32,
+    pub path_reason:  u16,
+    pub status_label: String,
+    pub reason_label: String,
+}
+
+impl QueryEngine {
+    /// Redundancy matrix: latest path status per (prefix, peer) for the given AFI.
+    /// Returns at most `limit` prefix rows, ordered by prefix.
+    ///
+    /// When `min_active_paths` is Some(n), only returns prefixes with fewer
+    /// than n active (best or primary) paths — the "show me where I'm unprotected" view.
+    pub fn path_status_matrix(
+        &self,
+        afi:               Option<&str>,
+        min_active_paths:  Option<u32>,
+        limit:             usize,
+    ) -> Result<Vec<PathMarkingRow>> {
+        let locked = self.store.lock().unwrap();
+        let conn   = locked.conn();
+
+        let afi_filter = afi
+            .map(|a| format!("AND afi = '{a}'"))
+            .unwrap_or_default();
+
+        let having_clause = min_active_paths
+            .map(|n| format!(
+                "HAVING SUM(CASE WHEN (path_status & 2 != 0) OR (path_status & 8 != 0) THEN 1 ELSE 0 END) < {n}"
+            ))
+            .unwrap_or_default();
+
+        let sql = format!(
+            r#"WITH latest AS (
+                SELECT occurred_at, speaker_addr, peer_addr, peer_as, prefix, afi,
+                       path_status, path_reason, status_label, reason_label,
+                       ROW_NUMBER() OVER (PARTITION BY prefix, peer_addr ORDER BY occurred_at DESC) AS rn
+                FROM path_markings
+                WHERE occurred_at >= NOW() - INTERVAL '5 minutes'
+                  {afi_filter}
+            ),
+            filtered_prefixes AS (
+                SELECT prefix
+                FROM latest
+                WHERE rn = 1
+                GROUP BY prefix
+                {having_clause}
+            )
+            SELECT l.occurred_at, l.speaker_addr, l.peer_addr, l.peer_as,
+                   l.prefix, l.afi, l.path_status, l.path_reason,
+                   l.status_label, l.reason_label
+            FROM latest l
+            JOIN filtered_prefixes fp ON l.prefix = fp.prefix
+            WHERE l.rn = 1
+            ORDER BY l.prefix, l.peer_addr
+            LIMIT {limit}"#
+        );
+
+        let rows = conn.prepare(&sql)?.query_map([], |row| {
+            Ok(PathMarkingRow {
+                occurred_at:  row.get(0)?,
+                speaker_addr: row.get(1)?,
+                peer_addr:    row.get(2)?,
+                peer_as:      row.get(3)?,
+                prefix:       row.get(4)?,
+                afi:          row.get(5)?,
+                path_status:  row.get(6)?,
+                path_reason:  row.get(7)?,
+                status_label: row.get(8)?,
+                reason_label: row.get(9)?,
+            })
+        })?.filter_map(|r| r.ok()).collect();
+        Ok(rows)
+    }
+
+    /// Timeline of path status events for a specific prefix+peer (last N hours).
+    pub fn path_status_history(
+        &self,
+        prefix:    &str,
+        peer_addr: &str,
+        hours:     u32,
+        limit:     usize,
+    ) -> Result<Vec<PathMarkingRow>> {
+        let locked = self.store.lock().unwrap();
+        let conn   = locked.conn();
+        let sql = format!(
+            r#"SELECT occurred_at, speaker_addr, peer_addr, peer_as, prefix, afi,
+                      path_status, path_reason, status_label, reason_label
+               FROM path_markings
+               WHERE prefix = '{prefix}'
+                 AND peer_addr = '{peer_addr}'
+                 AND occurred_at >= NOW() - INTERVAL '{hours} hours'
+               ORDER BY occurred_at DESC
+               LIMIT {limit}"#
+        );
+        let rows = conn.prepare(&sql)?.query_map([], |row| {
+            Ok(PathMarkingRow {
+                occurred_at:  row.get(0)?,
+                speaker_addr: row.get(1)?,
+                peer_addr:    row.get(2)?,
+                peer_as:      row.get(3)?,
+                prefix:       row.get(4)?,
+                afi:          row.get(5)?,
+                path_status:  row.get(6)?,
+                path_reason:  row.get(7)?,
+                status_label: row.get(8)?,
+                reason_label: row.get(9)?,
+            })
+        })?.filter_map(|r| r.ok()).collect();
+        Ok(rows)
+    }
+}
+
 fn map_route_row(row: &Row) -> duckdb::Result<RouteRow> {
     Ok(RouteRow {
         occurred_at:  row.get(0)?,

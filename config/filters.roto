@@ -1,0 +1,108 @@
+# rustybmp default BGP filter — Roto scripting language (JIT via Cranelift)
+# See: https://roto.docs.nlnetlabs.nl/
+#
+# This file is hot-reloaded automatically when saved.
+# Set `filter_file = "config/filters.roto"` in rustybmp.toml.
+#
+# ── Available route context fields ───────────────────────────────────────────
+#   route.prefix          "203.0.113.0/24"
+#   route.prefix_len      24   (u8 as u32 in Roto)
+#   route.afi             "ipv4" | "ipv6"
+#   route.peer_as         65001 (u32)
+#   route.peer_addr       "10.0.0.1"
+#   route.rib_type        "pre-policy" | "post-policy" | "loc-rib" | ...
+#   route.action          "announce" | "withdraw"
+#   route.as_path         "65001 65002 65003"
+#   route.as_path_len     3  (u32)
+#   route.origin_asn      65003 (u32)
+#   route.has_prepend     true | false
+#   route.next_hop        "10.0.0.1"
+#   route.local_pref      100 (u32)
+#   route.med             0   (u32)
+#   route.origin_attr     "igp" | "egp" | "incomplete"
+#   route.rpki            "valid" | "invalid" | "not-found" | "unknown"
+#   route.aspa            "valid" | "invalid" | "unknown"
+#   route.otc_asn         0 when absent; customer ASN when OTC present (RFC 9234)
+#   route.is_evpn         true | false
+#   route.is_bgpls        true | false
+#   route.is_srpolicy     true | false
+#   route.is_unnumbered   true | false
+#   route.evpn_type       0 = not EVPN, 1-5 = type codes
+#
+# ── Available helper functions ───────────────────────────────────────────────
+#   community_has(route, "64512:100")      → bool
+#   as_path_contains(route, 64496)         → bool
+#   prefix_in_range(route, "10.0.0.0/8")  → bool
+
+# ── Bogon / martian prefixes ─────────────────────────────────────────────────
+
+fn is_bogon(route: RouteCtx) -> bool {
+    prefix_in_range(route, "10.0.0.0/8")
+    || prefix_in_range(route, "172.16.0.0/12")
+    || prefix_in_range(route, "192.168.0.0/16")
+    || prefix_in_range(route, "192.0.2.0/24")
+    || prefix_in_range(route, "198.51.100.0/24")
+    || prefix_in_range(route, "203.0.113.0/24")
+    || prefix_in_range(route, "0.0.0.0/8")
+    || prefix_in_range(route, "240.0.0.0/4")
+    || prefix_in_range(route, "100.64.0.0/10")
+    || prefix_in_range(route, "127.0.0.0/8")
+    || prefix_in_range(route, "169.254.0.0/16")
+    || prefix_in_range(route, "198.18.0.0/15")
+}
+
+# ── RPKI invalid + too-specific = likely hijack (prefix hijacking indicator) ─
+
+fn looks_like_hijack(route: RouteCtx) -> bool {
+    route.rpki == "invalid" && route.prefix_len > 24
+}
+
+# ── OTC route leak (RFC 9234) ─────────────────────────────────────────────────
+# A route received from a customer (OTC set) should not be redistributed
+# towards other providers in the adj-rib-out pre-policy view.
+
+fn is_route_leak(route: RouteCtx) -> bool {
+    route.otc_asn > 0 && route.rib_type == "adj-out-pre"
+}
+
+# ── ASPA invalid upstream → flag for investigation ───────────────────────────
+
+fn aspa_invalid_upstream(route: RouteCtx) -> bool {
+    route.aspa == "invalid" && route.rib_type == "pre-policy"
+}
+
+# ── Main filter entry point ───────────────────────────────────────────────────
+# Returns true  = accept route (allow through)
+# Returns false = deny route (drop / flag)
+#
+# Evaluation order matters: withdrawals are always accepted first so that
+# routes already in the RIB can be removed even if the prefix would be denied
+# as an announcement.
+
+fn bgp_filter(route: RouteCtx) -> bool {
+    # Withdrawals always pass — we must be able to clean up the RIB
+    if route.action == "withdraw" { return true }
+
+    # RFC 7607: malformed AS_PATH (zero-length announce)
+    if route.as_path_len == 0 && route.rib_type == "pre-policy" { return false }
+
+    # Bogons
+    if is_bogon(route) { return false }
+
+    # Likely hijack: RPKI invalid + overly-specific prefix
+    if looks_like_hijack(route) { return false }
+
+    # OTC route leak
+    if is_route_leak(route) { return false }
+
+    # ASPA invalid in upstream direction
+    if aspa_invalid_upstream(route) { return false }
+
+    # Well-known blackhole community (RFC 7999)
+    if community_has(route, "65535:666") { return false }
+
+    # NO_EXPORT received from external peer in pre-policy — flag but accept
+    # (real enforcement happens at BGP session level; we just observe)
+
+    true
+}

@@ -133,6 +133,26 @@ fn persist_one(conn: &duckdb::Connection, ev: &RibEvent) -> Result<()> {
                 ],
             )?;
 
+            // RV7-P3: Write path_markings row when Path Status TLV is present
+            if let Some(ps) = attrs.as_ref().and_then(|a| a.path_status) {
+                conn.execute(
+                    "INSERT INTO path_markings VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    duckdb::params![
+                        ts,
+                        spk,
+                        rc.peer_header.peer_address.to_string(),
+                        rc.peer_header.peer_as,
+                        rc.prefix.to_string(),
+                        afi,
+                        ps.status,
+                        ps.reason,
+                        ps.label(),
+                        ps.reason_label(),
+                        duckdb::types::Null,  // collector_id
+                    ],
+                )?;
+            }
+
             // Write per-route rows to evpn_events for EVPN announces
             if action == "announce" {
                 if let Some(evpn) = attrs.as_ref().and_then(|a| a.evpn_reach.as_ref()) {

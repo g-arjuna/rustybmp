@@ -121,12 +121,53 @@
     });
   }
 
+  // ── RV7-UI5: Adaptive rendering mode ──────────────────────────────────────
+  const nodeCount  = $derived(graph.nodes.length);
+  const renderMode = $derived(
+    nodeCount < 100  ? 'force' :
+    nodeCount < 1000 ? 'hierarchical' :
+                       'clustered'
+  );
+
+  // Hierarchical: group by protocol (L2 → spine, L1 → leaf, others → access)
+  const hierarchicalTiers = $derived(() => {
+    const tiers: { label: string; nodes: typeof graph.nodes; cls: string }[] = [
+      { label: 'Spine (IS-IS L2)',  nodes: graph.nodes.filter(n => n.protocol === 'IsIsLevel2'), cls: 'bg-indigo-500' },
+      { label: 'Leaf  (IS-IS L1)', nodes: graph.nodes.filter(n => n.protocol === 'IsIsLevel1'), cls: 'bg-emerald-500' },
+      { label: 'Other',            nodes: graph.nodes.filter(n => n.protocol !== 'IsIsLevel2' && n.protocol !== 'IsIsLevel1'), cls: 'bg-gray-500' },
+    ];
+    return tiers.filter(t => t.nodes.length > 0);
+  });
+
+  // Clustered: group by AS prefix derived from node IDs
+  const asClusters = $derived(() => {
+    const map = new Map<string, number>();
+    for (const n of graph.nodes) {
+      const key = n.protocol ?? 'unknown';
+      map.set(key, (map.get(key) ?? 0) + 1);
+    }
+    return [...map.entries()].map(([proto, count]) => ({ proto, count }))
+      .sort((a, b) => b.count - a.count);
+  });
+
   onMount(() => { load(); });
 </script>
 
 <div class="p-6 space-y-4 h-full flex flex-col">
   <div class="flex items-center justify-between flex-wrap gap-3">
-    <h1 class="text-2xl font-bold text-gray-100">BGP-LS Topology</h1>
+    <div>
+      <h1 class="text-2xl font-bold text-gray-100">BGP-LS Topology</h1>
+      {#if nodeCount > 0}
+        <span class="text-xs px-2 py-0.5 rounded mt-1 inline-block
+          {renderMode === 'force' ? 'bg-emerald-900 text-emerald-300' :
+           renderMode === 'hierarchical' ? 'bg-blue-900 text-blue-300' :
+           'bg-purple-900 text-purple-300'}">
+          {renderMode === 'force' ? 'Force-directed' :
+           renderMode === 'hierarchical' ? 'Hierarchical layout' :
+           'Clustered AS-level'} · {nodeCount} nodes
+        </span>
+      {/if}
+    </div>
     <div class="flex items-center gap-2">
       <select
         bind:value={protocol}
@@ -169,11 +210,59 @@
       No BGP-LS topology data available yet.
       <br />Requires BGP-LS (AFI=16388 SAFI=71) peering with a router.
     </div>
-  {:else}
+  {:else if renderMode === 'force'}
+    <!-- Mode A: Force-directed D3 (< 100 nodes) -->
     <svg
       bind:this={svgEl}
       class="flex-1 bg-gray-900 rounded-xl border border-gray-800 w-full"
       style="min-height: 500px"
     ></svg>
+  {:else if renderMode === 'hierarchical'}
+    <!-- Mode B: Hierarchical spine-leaf layout (100-1000 nodes) -->
+    <div class="flex-1 overflow-y-auto space-y-4">
+      {#each hierarchicalTiers() as tier}
+        <div class="bg-gray-900/60 border border-gray-700 rounded-xl p-4">
+          <div class="flex items-center gap-2 mb-3">
+            <span class="w-3 h-3 rounded-full {tier.cls}"></span>
+            <span class="text-sm font-semibold text-gray-300">{tier.label}</span>
+            <span class="text-xs text-gray-500 ml-auto">{tier.nodes.length} nodes</span>
+          </div>
+          <div class="flex flex-wrap gap-1.5">
+            {#each tier.nodes.slice(0, 200) as node}
+              <span class="px-2 py-0.5 rounded bg-gray-800 text-gray-300 font-mono text-xs
+                           hover:bg-gray-700 cursor-default" title={node.id}>
+                {node.name ?? node.id}
+              </span>
+            {/each}
+            {#if tier.nodes.length > 200}
+              <span class="text-xs text-gray-600 self-center">+{tier.nodes.length - 200} more</span>
+            {/if}
+          </div>
+        </div>
+      {/each}
+      <p class="text-xs text-gray-600 text-center">
+        Hierarchical view — {nodeCount} nodes. Use the force-directed view for &lt; 100 nodes.
+      </p>
+    </div>
+  {:else}
+    <!-- Mode C: Clustered AS-level bubble view (> 1000 nodes) -->
+    <div class="flex-1 overflow-y-auto">
+      <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+        {#each asClusters() as cluster}
+          {@const pct = Math.max(20, Math.min(120, cluster.count * 2))}
+          <div class="bg-gray-900/60 border border-gray-700 rounded-xl p-4 flex flex-col items-center gap-2">
+            <div
+              class="rounded-full bg-purple-700/60 border border-purple-500 flex items-center justify-center font-bold text-white"
+              style="width:{pct}px;height:{pct}px;font-size:{Math.max(10, pct/8)}px">
+              {cluster.count}
+            </div>
+            <span class="text-xs text-gray-400 text-center">{cluster.proto}</span>
+          </div>
+        {/each}
+      </div>
+      <p class="text-xs text-gray-600 text-center mt-4">
+        AS-level cluster view — {nodeCount} nodes collapsed by protocol. Click a cluster to drill down.
+      </p>
+    </div>
   {/if}
 </div>

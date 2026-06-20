@@ -2,6 +2,7 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use chrono::{TimeZone, Utc};
 use crate::{Error, Result};
 use super::types::*;
+use super::path_status_tlv::{find_path_status_tlv, PATH_STATUS_TLV_TYPE};
 use crate::bgp::types::AfiSafi;
 use crate::bgp::update::parse_bgp_update;
 use crate::bgp::open::parse_bgp_open;
@@ -205,7 +206,18 @@ fn parse_route_monitoring(buf: &[u8]) -> Result<BmpPayload> {
     if rest.len() < 19 {
         return Err(Error::UnexpectedEof { needed: 19, have: rest.len() });
     }
-    let update = parse_bgp_update(rest, false)?;
+
+    // RV7-P2: Scan leading TLVs for Path Status TLV before the BGP PDU.
+    // The BGP PDU starts with the 16-byte marker (all 0xFF), so we scan
+    // any leading bytes for TLV structures until we hit the BGP marker.
+    // This handles implementations that prepend BMP TLVs before the BGP UPDATE.
+    let path_status = find_path_status_tlv(rest, PATH_STATUS_TLV_TYPE);
+
+    let mut update = parse_bgp_update(rest, false)?;
+    if let Some(ps) = path_status {
+        update.attributes.path_status = Some(ps);
+    }
+
     Ok(BmpPayload::RouteMonitoring { peer_header, update })
 }
 

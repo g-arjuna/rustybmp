@@ -10,6 +10,8 @@ use crate::event::{RibEvent, RibEventPayload, RibEventPayload::*, RouteChange, R
 use crate::session::{BmpSession, PeerSession};
 use crate::table::{RibEntry, RibTable};
 use crate::filter::{FilterEngine, FilterVerdict};
+use crate::roto_filter::RotoFilterEngine;
+use crate::roto_ctx::RouteCtx as RotoCtx;
 
 /// Central RIB manager: owns all per-speaker sessions and per-peer route tables.
 /// Driven by BmpMessage from the receiver; emits RibEvents to subscribers.
@@ -20,6 +22,8 @@ pub struct RibManager {
     event_tx: broadcast::Sender<RibEvent>,
     /// Optional programmable route filter chain (YAML DSL)
     filter: Option<FilterEngine>,
+    /// RV7-F T3: Optional Roto JIT filter engine (takes priority over YAML DSL)
+    roto_filter: Option<RotoFilterEngine>,
 }
 
 impl RibManager {
@@ -28,8 +32,9 @@ impl RibManager {
         (Self {
             speakers: HashMap::new(),
             ribs:     HashMap::new(),
-            event_tx: tx,
-            filter:   None,
+            event_tx:    tx,
+            filter:      None,
+            roto_filter: None,
         }, rx)
     }
 
@@ -45,6 +50,12 @@ impl RibManager {
     /// Remove the filter engine (all routes are default-accepted).
     pub fn clear_filter(&mut self) {
         self.filter = None;
+    }
+
+    /// RV7-F T3: Replace the active Roto JIT filter engine.
+    /// When set, Roto takes priority over the YAML DSL engine.
+    pub fn set_roto_filter(&mut self, engine: RotoFilterEngine) {
+        self.roto_filter = Some(engine);
     }
 
     /// Expire LLGR-stale routes for a peer whose stale timer has elapsed.
@@ -164,21 +175,33 @@ impl RibManager {
 
                 // Process announcements — carry path_id from NLRI (RFC 7911)
                 for (prefix, path_id) in update.all_announced_with_path_id() {
-                    // Apply programmable filter before installing / emitting
-                    if let Some(engine) = &self.filter {
-                        let (verdict, filter_name) = engine.apply(
+                    // RV7-F T3: Roto JIT filter takes priority when loaded
+                    let filter_verdict = if let Some(roto) = &self.roto_filter {
+                        let ctx = RotoCtx::from_bmp(
+                            prefix,
+                            peer_header.peer_as,
+                            peer_addr,
+                            rib_type,
+                            "announce",
+                            &update.attributes,
+                            "unknown",
+                        );
+                        roto.evaluate(&ctx)
+                    } else if let Some(engine) = &self.filter {
+                        let (v, _) = engine.apply(
                             &prefix,
                             peer_header.peer_as,
                             peer_addr,
                             &update.attributes,
                         );
-                        if verdict == FilterVerdict::Deny {
-                            debug!(%speaker, %peer_addr, %prefix,
-                                filter = filter_name.unwrap_or("?"),
-                                "route denied by filter");
-                            counter!("bgp_routes_filtered_total", "speaker" => speaker.to_string()).increment(1);
-                            continue;
-                        }
+                        v
+                    } else {
+                        FilterVerdict::Default
+                    };
+                    if filter_verdict == FilterVerdict::Deny {
+                        debug!(%speaker, %peer_addr, %prefix, "route denied by filter");
+                        counter!("bgp_routes_filtered_total", "speaker" => speaker.to_string()).increment(1);
+                        continue;
                     }
 
                     counter!("bgp_routes_announced_total", "speaker" => speaker.to_string()).increment(1);

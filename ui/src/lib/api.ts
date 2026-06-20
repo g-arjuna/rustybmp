@@ -144,6 +144,23 @@ export const api = {
     get<{ models: { model: string; path: string; ready: boolean; status: string }[] }>(
       '/api/ml/model/status'),
 
+  // Path Status matrix (RV7-P3)
+  pathStatusMatrix: (params?: Record<string, string>) =>
+    get<{ rows: unknown[]; count: number }>('/api/path-status/matrix', params),
+  pathStatusHistory: (prefix: string, peer?: string, limit = 200) =>
+    get<{ rows: unknown[] }>(
+      '/api/path-status/history',
+      { prefix, limit: String(limit), ...(peer ? { peer } : {}) }),
+
+  // Max-prefix capacity (RV7-B4)
+  maxPrefixCapacity: () =>
+    get<{ rows: unknown[]; count: number }>('/api/capacity/max-prefix'),
+
+  // Policy configs (RV7-B4)
+  policyConfigs: (peer?: string) =>
+    get<{ rows: unknown[]; count: number }>(
+      peer ? `/api/policy/configs/${encodeURIComponent(peer)}` : '/api/policy/configs'),
+
   // Filter management (RV6-1)
   filterStats: () =>
     get<{ filter_file: string; filter_count: number; counters: Record<string, string> }>(

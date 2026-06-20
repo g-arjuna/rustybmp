@@ -9,6 +9,7 @@ fn default_true() -> bool { true }
 fn default_jwt_secret() -> String { "change-me-32-byte-minimum-secret!!".into() }
 fn default_token_ttl() -> u64 { 86400 }
 fn default_retain_days() -> u32 { 90 }
+fn default_vault_path()  -> String { "runtime/vault.json".into() }
 fn default_nats_server() -> String { "nats://localhost:4222".into() }
 fn default_nats_prefix() -> String { "rustybmp".into() }
 
@@ -44,6 +45,10 @@ pub struct Config {
     /// watches this file and applies it on every save.
     /// Example: `filter_file = "config/filters.yaml"`
     pub filter_file: Option<String>,
+    /// Path to the credential vault JSON file (RV7-V1).
+    /// When absent, defaults to `runtime/vault.json`.
+    #[serde(default = "default_vault_path")]
+    pub vault_path: String,
 }
 
 impl Config {

@@ -9,6 +9,10 @@ pub mod ml;
 pub mod onboard;
 pub mod filters;
 pub mod analytics;
+pub mod path_status;
+pub mod credentials;
+pub mod policy_fetch;
+pub mod capacity;
 
 use std::sync::Arc;
 use axum::{Router, routing::{get, post, any}, middleware};
@@ -69,6 +73,24 @@ pub fn build_router(state: AppState) -> Router {
         .route("/peers/{addr}/capabilities", get(peers::peer_capabilities))
         // RPKI coverage/impact (RV6-5)
         .route("/rpki/coverage",       get(routes::rpki_coverage))
+        // Path Status TLV (RV7-P3)
+        .route("/path-status/matrix",  get(path_status::path_status_matrix))
+        .route("/path-status/history", get(path_status::path_status_history))
+        // Credential vault (RV7-V2)
+        .route("/credentials",          get(credentials::list_credentials))
+        .route("/credentials",          post(credentials::add_credential))
+        .route("/credentials/{alias}",  axum::routing::delete(credentials::delete_credential))
+        // SSH Policy fetch (RV7-V3)
+        .route("/policy/fetch",          post(policy_fetch::trigger_policy_fetch))
+        .route("/policy/fetch/{job_id}", get(policy_fetch::get_fetch_job))
+        // Policy configs (RV7-B4)
+        .route("/policy/configs",        get(capacity::list_policy_configs))
+        .route("/policy/configs/{peer}", get(capacity::peer_policy_configs))
+        // Max-prefix capacity (RV7-B4)
+        .route("/capacity/max-prefix",   get(capacity::max_prefix_capacity))
+        .route("/capacity/max-prefix",   post(capacity::upsert_max_prefix))
+        // BGP convergence events (RV7-UI6)
+        .route("/convergence",           get(capacity::convergence_events))
         // Filter management (RV6-1)
         .route("/filters/test",        post(filters::filter_test))
         .route("/filters/reload",      any(filters::filter_reload))
