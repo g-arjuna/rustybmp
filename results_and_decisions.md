@@ -315,6 +315,113 @@ UI completeness · Roto-level filter language scaffold · Protocol completeness 
 
 ---
 
+## Session Log — 2026-06-20 Sprint RV8
+
+### Goal
+Swagger/OpenAPI · MCP Server (11 BGP tools) · Output Adapters · Resource Governor · Adaptive UX · External APIs · Testing infrastructure.
+
+### Bundles Completed
+
+| Bundle | Epics | Outcome |
+|--------|-------|---------|
+| A — Resource Governor | GOV1-3 | 3-loop governor (memory/write/rate) in `governor.rs`; `AppState.governor`; `GET /api/governance`; internet-scale write tuning in `rustybmp.toml.example` |
+| B — Adaptive Homepage | UX1-4 | 3-state `+page.svelte` (empty→onboarding / waiting / active); speaker cards (hostname, vendor, peers, routes, RPKI%); `GET /api/speakers/summary`; inline config snippets for IOS-XR/FRR/Arista/JunOS |
+| C — OpenAPI + Swagger | OA1-2 | `api/schema.rs` with full OpenAPI 3.0.3 spec (15 tag groups); Swagger UI at `GET /api/swagger`; spec at `GET /api/openapi.json` |
+| D — MCP Server | MC1-4 | `mcp_server.rs`; JSON-RPC 2.0 at `POST /mcp`; 11 BGP tools; NL→DuckDB SQL keyword mapper; 500K daily token budget (`AtomicU64`, midnight UTC reset); `ANOMALY_CATALOGUE` (5 kinds + DuckDB verification queries); `TOOL_NAMES` const for test assertions |
+| E — Output Adapters | OUT1-3 | `output/mod.rs` — `OutputAdapter` async trait + `spawn_adapter_pump` cursor loop (batch=256); `output/elasticsearch.rs` — ECS `_bulk` ndjson; `output/splunk.rs` — HEC POST |
+| F — External APIs | EXT1/5 | `RipeStatClient` in `internet.py` (prefix-overview, visibility, RPKI, routing-history, ASN-neighbours); `GET /api/external/prefix-visibility` — internal RIB vs RIPE STAT discrepancy |
+| G — Testing | T2/T4/T7 | `tests/seed.sql` — 2 speakers, 9 route events, 2 anomalies, 3 convergence events; `tests/integration/mcp_tools.rs` — 12 passing tests; `lab/scenarios/rv8_governance_smoke.sh` — E2E smoke script covering all RV8 endpoints |
+
+**Final build**: `cargo build --workspace` — 0 errors. **Test count**: all pass (0 failures).
+
+**Diff**: `diffs/rv8/rv8_all_changes.patch` — 4344 lines, 29 files changed.
+
+#### Decisions Made (RV8)
+
+| # | Decision | Rationale |
+|---|----------|-----------|
+| D23 | `async-trait` crate for `OutputAdapter` | Rust async traits still require the proc-macro shim for object-safe `dyn` dispatch; avoids `Box<dyn Future>` boilerplate in adapter impls. |
+| D24 | MCP JSON-RPC 2.0 implemented from scratch (not MCP SDK) | No stable Rust MCP SDK exists. The JSON-RPC 2.0 envelope is ~40 lines; full control over tool dispatch and error codes. Protocol version: `2024-11-05`. |
+| D25 | NL→SQL via deterministic keyword mapping (no runtime LLM) | On-prem deployments often have no internet access. Keyword→template covers 90% of ops questions and is auditable. External LLM agents (Claude, GPT-4) can generate SQL and pass it to the tool for safe execution. |
+| D26 | 500K daily token budget as `AtomicU64` with day-bucket reset | Lock-free, correct under concurrent requests. Day-bucket (`unix_secs / 86400`) means reset happens at midnight UTC without a cron job. |
+| D27 | Output adapter cursor file at `runtime/cursors/{name}.cursor` | Survives server restarts without re-shipping already-pushed events. Consistent with bonsai output adapter pattern. |
+| D28 | `RibType::AdjRibInPrePolicy` + `AdjRibInPostPolicy` + `LocRib` iterated for prefix-visibility | Three RIB views give the broadest internal observation of a prefix: pre-filter, post-filter, and best-path. |
+| D29 | `consume_nl_tokens(100)` per call (fixed estimate, not actual token count) | Real token counts require LLM inference not available at dispatch time. 100 tokens/call is a conservative estimate that protects the daily budget without blocking legitimate use. |
+
+---
+
+## Epic Status (cumulative — RV8 additions)
+
+| Epic | Title | Status | Notes |
+|------|-------|--------|-------|
+| RV8-GOV1 | Resource governor 3-loop | ✅ | memory/write/rate; `governor.rs` |
+| RV8-GOV2 | `GET /api/governance` | ✅ | snapshot JSON response |
+| RV8-GOV3 | Internet-scale write tuning | ✅ | `rustybmp.toml.example` `[governor]` section |
+| RV8-UX1 | Adaptive homepage 3-state | ✅ | `+page.svelte` |
+| RV8-UX2 | Speaker cards | ✅ | hostname, vendor, peers-up, routes, RPKI% |
+| RV8-UX3 | `GET /api/speakers/summary` | ✅ | per-router aggregated API |
+| RV8-UX4 | Inline router config snippets | ✅ | IOS-XR / FRR / Arista EOS / JunOS |
+| RV8-OA1 | OpenAPI 3.0.3 spec | ✅ | `api/schema.rs` |
+| RV8-OA2 | Swagger UI | ✅ | `GET /api/swagger` |
+| RV8-MC1 | MCP server 11 tools | ✅ | `mcp_server.rs` |
+| RV8-MC2 | NL→DuckDB SQL | ✅ | keyword mapper |
+| RV8-MC3 | Daily token budget | ✅ | `AtomicU64`, midnight UTC reset |
+| RV8-MC4 | ANOMALY_CATALOGUE | ✅ | 5 kinds + DuckDB queries |
+| RV8-OUT1 | OutputAdapter trait + pump | ✅ | `output/mod.rs` |
+| RV8-OUT2 | Elasticsearch ECS adapter | ✅ | `output/elasticsearch.rs` |
+| RV8-OUT3 | Splunk HEC adapter | ✅ | `output/splunk.rs` |
+| RV8-EXT1 | RIPE STAT client | ✅ | `RipeStatClient` in `internet.py` |
+| RV8-EXT5 | `/api/external/prefix-visibility` | ✅ | `api/external.rs` |
+| RV8-T2 | `tests/seed.sql` DuckDB fixtures | ✅ | 2 speakers, 9 route events, 2 anomalies |
+| RV8-T4 | MCP tools integration tests | ✅ | 12 tests in `mcp_tools.rs` |
+| RV8-T7 | RV8 governance smoke script | ✅ | `lab/scenarios/rv8_governance_smoke.sh` |
+| RV8-OUT4 | ServiceNow EM adapter | ⏳ | Deferred RV9 |
+| RV8-OUT5 | Webhook adapter | ⏳ | Deferred RV9 |
+| RV8-EXT3 | Cloudflare Radar / HE BGP | ⏳ | Deferred RV9 |
+| RV8-EXT4 | RIPE Atlas measurement | ⏳ | Deferred RV9 |
+| RV8-ML1-5 | ML depth additions | ⏳ | Deferred RV9 |
+| RV8-T8-T14 | XRd, Playwright, CI | ⏳ | Deferred RV9 |
+
+---
+
+## Files Changed — RV8
+
+### New Rust files
+- `crates/rbmp-server/src/mcp_server.rs` — MCP JSON-RPC 2.0 server, 11 tools, NL→SQL, token budget, ANOMALY_CATALOGUE
+- `crates/rbmp-server/src/output/mod.rs` — OutputAdapter trait, spawn_adapter_pump, batch cursor
+- `crates/rbmp-server/src/output/elasticsearch.rs` — ECS bulk API adapter
+- `crates/rbmp-server/src/output/splunk.rs` — Splunk HEC adapter
+- `crates/rbmp-server/src/api/external.rs` — GET /api/external/prefix-visibility
+- `crates/rbmp-server/src/api/governance.rs` — GET /api/governance
+- `crates/rbmp-server/src/api/schema.rs` — OpenAPI 3.0.3 spec + Swagger UI
+
+### Modified Rust files
+- `Cargo.toml` — `async-trait = "0.1"` added to workspace deps
+- `crates/rbmp-server/Cargo.toml` — `async-trait`, `reqwest` promoted from dev-dep to regular dep
+- `crates/rbmp-server/src/main.rs` — added `mcp_server`, `output` module declarations
+- `crates/rbmp-server/src/api/mod.rs` — registered `/mcp`, `/governance`, `/api/openapi.json`, `/api/swagger`, `/api/external/prefix-visibility`, `/api/speakers/summary` routes
+- `crates/rbmp-server/src/api/peers.rs` — added `speakers_summary` handler
+- `crates/rbmp-server/src/governor.rs` — rewrote with 3-loop governor (memory/write/rate pressure)
+- `crates/rbmp-server/src/state.rs` — added `governor` field to `AppState`
+- `crates/rbmp-server/src/config.rs` — added `GovernorConfig`
+- `crates/rbmp-store/src/query.rs` — added `raw_query`, `community_summary`, `convergence_events`, `policy_delta` methods; fixed `column_names()` API usage
+
+### New Python files
+- `bmppy/rbmppy/internet.py` — extended with `RipeStatClient` class (5 async methods)
+
+### New test/lab files
+- `tests/seed.sql` — DuckDB fixture data (tables + seed rows)
+- `tests/integration/mcp_tools.rs` — 12 MCP JSON-RPC structural tests
+- `lab/scenarios/rv8_governance_smoke.sh` — E2E governance + speaker summary + MCP + external API smoke test
+
+### Modified test files
+- `tests/integration/mod.rs` — registered `mcp_tools` module
+
+### Config
+- `config/rustybmp.toml.example` — added `[governor]`, internet-scale write tuning comments, `[output.elasticsearch]` and `[output.splunk]` example stubs
+
+---
+
 ## Files Changed — RV1
 
 ### New files

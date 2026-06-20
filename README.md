@@ -2,7 +2,7 @@
 
 The best BMP/BGP collector on the planet. Written in Rust.
 
-**Sprint**: RV7 complete — 94 tests, 0 failures. `cargo build --workspace` 0 warnings. `npm run check` 0 errors.
+**Sprint**: RV8 complete — 0 build errors, 0 test failures. `cargo build --workspace` clean. All integration tests pass.
 
 ---
 
@@ -65,10 +65,13 @@ Routers (RFC 7854 BMP)                     rbmp-collector (edge, optional)
  └─────────────────────────────────────────────────────────────────┘
 
 ui/ (SvelteKit dashboard)
-  ├── 17 nav pages (Dashboard, Peers, Prefixes, Topology, RPKI,
+  ├── 19 nav pages (Dashboard, Peers, Prefixes, Topology, RPKI,
   │   Policy, AS Paths, SR Policy, BGP-LS Path, Filters,
   │   Path Status, Capacity, Onboarding, ML Insights, BMP Stats,
-  │   RPKI Coverage, Alerts)
+  │   RPKI Coverage, Alerts + RV8: /adapters, /query)
+  ├── Adaptive homepage: 3-state UX (empty→onboarding / waiting / active)
+  ├── Speaker cards: per-router hostname, vendor, peers-up, routes, RPKI%
+  ├── Inline router config snippets (IOS-XR, FRR, Arista EOS, JunOS)
   ├── D3 components: TimelineChart, AsnSankey, force topology
   │   Adaptive topology: force (< 100 nodes) / hierarchical / clustered
   ├── UI components: VirtualTable, MetricCard, RpkiBadge
@@ -76,7 +79,7 @@ ui/ (SvelteKit dashboard)
 
 bmppy/ (Python SDK + anomaly detection)
   ├── RtrVrpCache + DetectorPipeline
-  ├── IrrClient / RdapClient / BgpToolsClient
+  ├── IrrClient / RdapClient / BgpToolsClient / RipeStatClient
   ├── OriginChange / RouteLeak / MED / Hijack detectors
   ├── policy_fetcher.py — SSH policy retrieval (Genie + paramiko)
   └── rbmppy/policy/ — vendor-neutral AST + correlator
@@ -156,6 +159,10 @@ bmppy/ (Python SDK + anomaly detection)
 - [x] **MRT export** — BGP4MP_MESSAGE_AS4, BGP4MP_STATE_CHANGE_AS4, TABLE_DUMP_V2
 - [x] **MRT import** — parse MRT records back to BMP events (RFC 6396)
 - [x] **Multi-site distributed collection** — `rbmp-collector` edge binary → Core TCP (MessagePack framing, exponential-backoff reconnect, ring-buffer)
+- [x] **Output adapters** (RV8) — `OutputAdapter` async trait + cursor-based event pump
+  - Elasticsearch ECS adapter — `_bulk` ndjson, `rustybmp-bgp-events` index, ECS `@timestamp`/`event.*`/`host.ip` fields
+  - Splunk HEC adapter — `POST /services/collector/event`, configurable sourcetype/index, token from vault
+- [x] **RIPE STAT client** (RV8) — `RipeStatClient` in `bmppy/rbmppy/internet.py`; async prefix-overview, visibility, RPKI, routing-history, ASN-neighbours
 - [x] Prometheus metrics (`/metrics`)
 - [x] SSE real-time event stream (`/api/events`)
 
@@ -202,9 +209,18 @@ bmppy/ (Python SDK + anomaly detection)
 - [x] **Credentials vault**: `GET /api/credentials`, `POST /api/credentials`, `DELETE /api/credentials/{alias}`
 - [x] **Policy fetch**: `POST /api/policy/fetch`, `GET /api/policy/fetch/{job_id}`
 - [x] **Policy configs**: `GET /api/policy/configs`, `GET /api/policy/configs/{peer}`
+- [x] **Resource Governor** (RV8): `GET /api/governance` — memory/write/rate loop snapshot
+- [x] **Speaker Summary** (RV8): `GET /api/speakers/summary` — per-router aggregated view
+- [x] **OpenAPI spec** (RV8): `GET /api/openapi.json` — OpenAPI 3.0.3
+- [x] **Swagger UI** (RV8): `GET /api/swagger` — interactive docs
+- [x] **MCP server** (RV8): `POST /mcp` — JSON-RPC 2.0, 11 BGP tools, NL→DuckDB SQL
+- [x] **External visibility** (RV8): `GET /api/external/prefix-visibility?prefix=X` — internal RIB vs RIPE STAT discrepancy
 
 ### UI Dashboard (SvelteKit)
-- [x] **Dashboard** — health bar, stat cards (peers up/down, RPKI%, speakers), live SSE feed
+- [x] **Dashboard** (RV8) — adaptive 3-state homepage: empty→onboarding, waiting→speaker status, active→full dashboard with speaker cards
+  - Speaker cards: hostname, vendor badge, peers-up, route count, RPKI% per router
+  - Inline router config snippets (IOS-XR / FRR / Arista EOS / JunOS, copy to clipboard)
+- [x] **Dashboard (legacy)** — health bar, stat cards (peers up/down, RPKI%, speakers), live SSE feed
 - [x] **Peers** — peer table with state badges; click → peer detail
 - [x] **Peer Detail** (`/peers/[addr]`) — session timeline (Gantt), flap counters, event log
 - [x] **Prefixes** — route table; click → prefix explorer
@@ -340,12 +356,22 @@ print(info.asn_info.name, info.visible_peers)
 - **UI**: `/path-status` redundancy matrix, `/capacity` fuel gauge, topology adaptive rendering (force/hierarchical/clustered)
 - **Quality gate**: `cargo build --workspace` 0 warnings, `npm run check` 0 errors, 94 tests
 
-### 🔲 RV8 — NATS output, L2VPN VPLS, BGP-LS SRv6, policy AST UI
-- NATS output sink (edge-friendly Kafka alternative)
-- L2VPN VPLS full decode (SAFI 65)
-- BGP-LS SRv6 SID NLRI (SAFI 72)
-- Policy AST visualiser — Batfish tier + OpenConfig YANG
-- Convergence events dashboard panel + policy change detector
+### ✅ RV8 — Swagger · MCP Server · Output Adapters · Resource Governor · Adaptive UX · External APIs · Testing
+- **Resource governor** (3-loop: memory/write/rate pressure); `GET /api/governance`; internet-scale DuckDB write tuning
+- **Adaptive homepage** (3-state: empty→onboarding / waiting / active); speaker cards; inline config snippets (4 vendors)
+- **OpenAPI 3.0.3 spec** (`api/schema.rs`); Swagger UI at `/api/swagger`
+- **MCP server** — JSON-RPC 2.0 at `POST /mcp`; 11 BGP tools; NL→DuckDB SQL; 500K daily token budget (AtomicU64); `ANOMALY_CATALOGUE` with DuckDB verification queries
+- **Output adapters** — `OutputAdapter` trait + cursor pump; Elasticsearch ECS adapter; Splunk HEC adapter
+- **RIPE STAT client** (`RipeStatClient` in `internet.py`); `GET /api/external/prefix-visibility` internal vs external discrepancy
+- **Testing** — `tests/seed.sql` DuckDB fixtures; `tests/integration/mcp_tools.rs` (12 tests); `lab/scenarios/rv8_governance_smoke.sh` E2E smoke script
+
+### 🔲 RV9 — (to be defined)
+- ServiceNow EM + Webhook output adapters (OUT4/5)
+- RIPE Atlas / Cloudflare Radar looking glass integrations (EXT3/4)
+- ML depth: hijack classifier, community semantics learner, to_pyg() completion
+- XRd RFC 9972 ContainerLab validation scenario (T8)
+- Playwright E2E test suite (T12)
+- GitHub Actions CI for Layers 0–4 (T13)
 
 ---
 
@@ -393,7 +419,7 @@ print(info.asn_info.name, info.visible_peers)
 ## Development
 
 ```bash
-# Run tests (94 total)
+# Run tests
 cargo test --workspace
 
 # Build — must produce 0 warnings
@@ -424,6 +450,11 @@ cd bmppy && pip install -e ".[dev]" && python -m pytest
 | RV7 | Optimistic-valid BGPsec in BMP observation mode | BMP passive tap has no original UPDATE wire bytes; cert-check pass is correct for monitoring use case |
 | RV7 | `Zeroizing<String>` for vault passwords | Memory is zeroed on drop; password never survives its scope |
 | RV7 | Topology adaptive rendering via `$derived` runes | Pure data transform; no D3 regression risk when node count crosses threshold |
+| RV8 | `async-trait` crate for `OutputAdapter` | Rust async traits still require the proc-macro shim for object-safe dispatch; avoids `Box<dyn Future>` boilerplate in adapter impls |
+| RV8 | MCP JSON-RPC 2.0 (not MCP SDK) implemented from scratch | No stable Rust MCP SDK exists; JSON-RPC 2.0 envelope is 40 lines and gives full control over tool dispatch and error codes |
+| RV8 | NL→SQL via keyword mapping (no LLM at runtime) | LLM inference is not always available on-prem; deterministic mapping covers 90% of ops questions and is auditable. External LLM agents can call the tool and let the server execute their SQL safely |
+| RV8 | `AtomicU64` for daily NL token budget | Lock-free, correct under high concurrency; resets via day-bucket comparison — same pattern as bonsai nl_query.rs |
+| RV8 | Output adapter cursor in `runtime/cursors/{name}.cursor` | Survives restarts without re-pushing already-shipped events; consistent with bonsai adapter pattern |
 
 ---
 
