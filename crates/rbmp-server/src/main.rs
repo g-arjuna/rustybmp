@@ -4,6 +4,8 @@ mod receiver;
 mod archive;
 mod governor;
 pub mod api;
+pub mod mcp_server;
+pub mod output;
 mod dns;
 mod proxy;
 pub mod auth;
@@ -86,8 +88,8 @@ async fn main() -> Result<()> {
         archive::BmpArchive::open(cfg.bmp.archive_path.as_deref()).await?
     );
 
-    // ── Back-pressure governor ────────────────────────────────────────────────
-    let shed_signal = governor::ShedSignal::new();
+    // ── Resource governor (RV8-GOV1) ──────────────────────────────────────────
+    let gov = governor::ResourceGovernor::new(cfg.governor.clone());
 
     // ── RPKI enrichment ───────────────────────────────────────────────────────
     let vrp_cache  = VrpCache::new();
@@ -97,8 +99,8 @@ async fn main() -> Result<()> {
     let (msg_tx, mut msg_rx) = mpsc::channel(4096);
     let cancel = CancellationToken::new();
 
-    // Spawn pressure monitor
-    governor::spawn_pressure_monitor(msg_tx.clone(), shed_signal.clone());
+    // Spawn all three governor loops (memory / write / rate)
+    gov.spawn_loops(msg_tx.clone());
 
     // Spawn RTR client when RPKI is enabled
     if cfg.rpki.enabled {
@@ -221,7 +223,7 @@ async fn main() -> Result<()> {
     {
         let cancel2     = cancel.clone();
         let bmp_cfg     = cfg.bmp.clone();
-        let shed2       = shed_signal.clone();
+        let shed2       = gov.clone();
         let archive2    = Arc::clone(&archive);
         let msg_tx2     = msg_tx.clone();
         tokio::spawn(async move {
@@ -234,8 +236,10 @@ async fn main() -> Result<()> {
     // ── RIB pump task (BmpMessage → RibManager → events) ─────────────────────
     {
         let rib2 = Arc::clone(&rib);
+        let gov2 = gov.clone();
         tokio::spawn(async move {
             while let Some(msg) = msg_rx.recv().await {
+                gov2.record_event();
                 rib2.write().await.process(msg);
             }
         });
@@ -322,6 +326,7 @@ async fn main() -> Result<()> {
         auth_cfg,
         vault,
         policy_jobs,
+        governor:   gov,
     };
     let router  = build_router(state);
     let http_addr: std::net::SocketAddr = cfg.http.listen_addr.parse()?;

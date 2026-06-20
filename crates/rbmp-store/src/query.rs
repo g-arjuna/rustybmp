@@ -915,6 +915,106 @@ impl QueryEngine {
     }
 }
 
+// ─── RV8-MC1: Additional query methods for MCP tools ─────────────────────────
+
+impl QueryEngine {
+    /// Peers that have had a peer_down event in the last `hours` hours (flap detection).
+    pub fn peer_flap_events(&self, hours: u32, limit: usize) -> Result<Vec<serde_json::Value>> {
+        let locked = self.store.lock().unwrap();
+        let conn   = locked.conn();
+        let sql = format!(
+            r#"SELECT peer_addr, speaker_addr, COUNT(*) AS down_count,
+                      MAX(occurred_at) AS last_down
+               FROM peer_events
+               WHERE event_type = 'peer_down'
+                 AND occurred_at >= NOW() - INTERVAL '{hours} hours'
+               GROUP BY peer_addr, speaker_addr
+               ORDER BY down_count DESC
+               LIMIT {limit}"#
+        );
+        let rows = conn.prepare(&sql)?.query_map([], |row| {
+            Ok(serde_json::json!({
+                "peer_addr":    row.get::<_, String>(0)?,
+                "speaker_addr": row.get::<_, String>(1)?,
+                "down_count":   row.get::<_, u64>(2)?,
+                "last_down":    row.get::<_, String>(3)?,
+            }))
+        })?.filter_map(|r| r.ok()).collect();
+        Ok(rows)
+    }
+
+    /// Routes with RPKI Invalid status, optionally filtered by speaker.
+    pub fn rpki_invalids(&self, speaker: Option<&str>, limit: usize) -> Result<Vec<serde_json::Value>> {
+        let locked = self.store.lock().unwrap();
+        let conn   = locked.conn();
+        let speaker_filter = speaker
+            .map(|s| format!("AND speaker_addr = '{s}'"))
+            .unwrap_or_default();
+        let sql = format!(
+            r#"SELECT prefix, peer_addr, speaker_addr, as_path, occurred_at
+               FROM route_events
+               WHERE action = 'announce'
+                 AND rpki_validity = 'invalid'
+                 {speaker_filter}
+               ORDER BY occurred_at DESC
+               LIMIT {limit}"#
+        );
+        let rows = conn.prepare(&sql)?.query_map([], |row| {
+            Ok(serde_json::json!({
+                "prefix":       row.get::<_, String>(0)?,
+                "peer_addr":    row.get::<_, String>(1)?,
+                "speaker_addr": row.get::<_, String>(2)?,
+                "as_path":      row.get::<_, Option<String>>(3)?,
+                "occurred_at":  row.get::<_, String>(4)?,
+            }))
+        })?.filter_map(|r| r.ok()).collect();
+        Ok(rows)
+    }
+
+    /// Top BGP communities by route count.
+    pub fn community_summary(&self, limit: usize) -> Result<Vec<serde_json::Value>> {
+        let locked = self.store.lock().unwrap();
+        let conn   = locked.conn();
+        let sql = format!(
+            r#"SELECT communities, COUNT(*) AS route_count
+               FROM route_events
+               WHERE communities IS NOT NULL AND communities <> ''
+               GROUP BY communities
+               ORDER BY route_count DESC
+               LIMIT {limit}"#
+        );
+        let rows = conn.prepare(&sql)?.query_map([], |row| {
+            Ok(serde_json::json!({
+                "communities": row.get::<_, String>(0)?,
+                "route_count": row.get::<_, u64>(1)?,
+            }))
+        })?.filter_map(|r| r.ok()).collect();
+        Ok(rows)
+    }
+
+    /// Execute an arbitrary read-only SQL query and return rows as JSON.
+    /// Used by the NL→SQL MCP tool. Only SELECT statements are accepted.
+    pub fn raw_query(&self, sql: &str) -> Result<serde_json::Value> {
+        let trimmed = sql.trim_start().to_uppercase();
+        if !trimmed.starts_with("SELECT") {
+            return Err(anyhow::anyhow!("Only SELECT statements are allowed in raw_query"));
+        }
+        let locked = self.store.lock().unwrap();
+        let conn   = locked.conn();
+        let mut stmt = conn.prepare(sql)?;
+        let col_names: Vec<String> = stmt.column_names();
+        let rows: Vec<serde_json::Value> = stmt.query_map([], |row| {
+            let mut obj = serde_json::Map::new();
+            for (i, name) in col_names.iter().enumerate() {
+                let val: Option<String> = row.get(i).ok();
+                obj.insert(name.clone(), val.map(serde_json::Value::String).unwrap_or(serde_json::Value::Null));
+            }
+            Ok(serde_json::Value::Object(obj))
+        })?.filter_map(|r| r.ok()).collect();
+        Ok(serde_json::Value::Array(rows))
+    }
+}
+
 fn map_route_row(row: &Row) -> duckdb::Result<RouteRow> {
     Ok(RouteRow {
         occurred_at:  row.get(0)?,

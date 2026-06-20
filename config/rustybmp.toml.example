@@ -74,3 +74,42 @@ lease_secs  = 10
 # hostname = "xr-spine-01"
 # vendor   = "cisco-xr"
 # site     = "dc-lon-01"
+
+# ── Resource Governor (RV8-GOV1/GOV3) ────────────────────────────────────────
+# Three-loop resource governor: memory pressure, write queue pressure, rate governance.
+# Tune these for internet-scale MRT injection (~36K routes/sec).
+[governor]
+# Memory budget in MB. Default: 8 GB. Increase for internet table injection (12GB for 32GB machine).
+memory_budget_mb = 8000
+# Maximum inbound events/second before rate shedding activates (shed BMP stats/BGP-LS updates first).
+rate_budget_eps  = 500000
+# BMP message types that can be shed under pressure (stats = BMP Stats Reports §4.8)
+sheddable_types  = ["stats"]
+
+# ── Internet-scale DuckDB write tuning (RV8-GOV3) ─────────────────────────────
+# For full RouteViews MRT table injection (~1.1M prefixes, ~36K routes/sec):
+#   batch_size        = 5000    # increase from default 500
+#   batch_timeout_ms  = 200     # increase from default 50ms — fewer DuckDB transactions
+#   write_queue_depth = 100000  # increase channel depth from default 16384
+#
+# Uncomment and adjust for your workload:
+# [store.write]
+# batch_size        = 5000
+# batch_timeout_ms  = 200
+# write_queue_depth = 100000
+
+# ── Output Adapters (RV8-OUT1) ────────────────────────────────────────────────
+# Uncomment and configure to forward BGP events to external sinks.
+# [output.elasticsearch]
+# url   = "http://localhost:9200"
+# index = "bgp-events"
+# # api_key = "base64encodedkey"   # OR: username/password below
+# # username = "elastic"
+# # password = "changeme"
+
+# [output.splunk]
+# url        = "https://splunk-host:8088"
+# token      = "your-hec-token"
+# index      = "main"
+# sourcetype = "bgp:rustybmp"
+# insecure_tls = false

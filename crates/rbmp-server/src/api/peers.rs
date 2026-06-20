@@ -121,6 +121,47 @@ pub async fn peer_timeline(
     Ok(Json(json!({ "peer_addr": addr, "days": q.days, "timeline": timeline })))
 }
 
+/// GET /api/speakers/summary — Per-speaker aggregated data for the adaptive homepage (RV8-UX3).
+///
+/// Returns BMP state, active/down peer counts, route totals, RPKI valid %, and last message time.
+pub async fn speakers_summary(State(state): State<AppState>) -> Json<Value> {
+    let rib = state.rib.read().await;
+    let speakers: Vec<Value> = rib.speakers().iter().map(|s| {
+        let addr_str   = s.speaker_addr.to_string();
+        let meta       = state.registry.lookup(&addr_str);
+        let peers_up   = s.up_peer_count();
+        let peers_down = s.peer_count().saturating_sub(peers_up);
+        let route_count = s.total_routes();
+
+        let bmp_state = if peers_up > 0 { "active" } else { "idle" };
+
+        json!({
+            "addr":           addr_str,
+            "hostname":       s.sys_name.clone()
+                .or_else(|| meta.as_ref().map(|m| m.hostname.clone()))
+                .unwrap_or_default(),
+            "vendor":         meta.as_ref().map(|m| m.vendor.as_str()).unwrap_or(""),
+            "bmp_state":      bmp_state,
+            "peers_up":       peers_up,
+            "peers_down":     peers_down,
+            "route_count":    route_count,
+            "connected_at":   s.connected_at.to_rfc3339(),
+        })
+    }).collect();
+
+    let total_routes   = rib.total_routes();
+    let total_peers_up = rib.total_peers_up();
+
+    Json(json!({
+        "speakers":        speakers,
+        "count":           speakers.len(),
+        "total_peers_up":  total_peers_up,
+        "total_routes":    total_routes,
+        "has_speakers":    !speakers.is_empty(),
+        "has_active_sessions": total_peers_up > 0,
+    }))
+}
+
 /// GET /api/peers/{addr}/capabilities
 /// Returns the BGP capabilities negotiated with this peer.
 pub async fn peer_capabilities(

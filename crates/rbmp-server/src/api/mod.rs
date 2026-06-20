@@ -13,10 +13,15 @@ pub mod path_status;
 pub mod credentials;
 pub mod policy_fetch;
 pub mod capacity;
+pub mod governance;
+pub mod schema;
+pub mod external;
 
 use std::sync::Arc;
 use axum::{Router, routing::{get, post, any}, middleware};
 use tower_http::cors::CorsLayer;
+use crate::api::schema::{openapi_spec, swagger_ui};
+use crate::mcp_server::mcp_handler;
 use tower_http::services::{ServeDir, ServeFile};
 use crate::auth::{auth_handler, require_auth};
 use crate::state::AppState;
@@ -29,6 +34,7 @@ pub fn build_router(state: AppState) -> Router {
     let api = Router::new()
         // Speakers
         .route("/speakers",            get(peers::list_speakers))
+        .route("/speakers/summary",    get(peers::speakers_summary))
         .route("/speakers/{addr}",     get(peers::get_speaker))
         // Peers
         .route("/peers",               get(peers::list_peers))
@@ -97,6 +103,10 @@ pub fn build_router(state: AppState) -> Router {
         .route("/filters/stats",       get(filters::filter_stats))
         // ML model status (RV6-5)
         .route("/ml/model/status",     get(ml::model_status))
+        // Resource governor (RV8-GOV2)
+        .route("/governance",          get(governance::get_governance))
+        // External API integrations (RV8-EXT5)
+        .route("/external/prefix-visibility", get(external::prefix_visibility))
         // Parquet export (RV4-2)
         .route("/export/parquet",      get(export::export_parquet))
         // Real-time event stream (SSE)
@@ -117,6 +127,11 @@ pub fn build_router(state: AppState) -> Router {
         .route("/metrics", get(health::metrics))
         // Auth token endpoint — public
         .route("/auth", post(auth_handler))
+        // OpenAPI spec + Swagger UI — public (RV8-OA1/OA2)
+        .route("/api/openapi.json", get(openapi_spec))
+        .route("/api/swagger",      get(swagger_ui))
+        // MCP JSON-RPC 2.0 endpoint — public (RV8-MC1)
+        .route("/mcp",              post(mcp_handler))
         // Mount protected API at /api
         .nest("/api", api)
         .with_state(state)

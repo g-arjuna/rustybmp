@@ -14,7 +14,7 @@ use rbmp_core::bmp::types::{BmpMessage, BmpPayload};
 use crate::archive::BmpArchive;
 use crate::config::BmpConfig;
 use crate::dns::DnsCache;
-use crate::governor::ShedSignal;
+use crate::governor::ResourceGovernor;
 
 const BMP_HEADER_LEN: usize = 6;
 
@@ -23,7 +23,7 @@ pub async fn run_bmp_receiver(
     cfg:     BmpConfig,
     cancel:  CancellationToken,
     tx:      mpsc::Sender<BmpMessage>,
-    shed:    ShedSignal,
+    shed:    ResourceGovernor,
     archive: Arc<BmpArchive>,
     dns:     Option<DnsCache>,
 ) -> Result<()> {
@@ -70,7 +70,7 @@ async fn handle_connection(
     cfg:        BmpConfig,
     cancel:     CancellationToken,
     tx:         mpsc::Sender<BmpMessage>,
-    shed:       ShedSignal,
+    shed:       ResourceGovernor,
     archive:    Arc<BmpArchive>,
     dns:        Option<DnsCache>,
 ) -> Result<()> {

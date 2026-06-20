@@ -13,6 +13,38 @@ fn default_vault_path()  -> String { "runtime/vault.json".into() }
 fn default_nats_server() -> String { "nats://localhost:4222".into() }
 fn default_nats_prefix() -> String { "rustybmp".into() }
 
+fn default_memory_budget_mb() -> u64 { 4096 }
+fn default_rate_budget_eps()  -> u64 { 500_000 }
+
+/// Resource governor configuration (RV8-GOV1)
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct GovernorConfig {
+    /// Memory budget in MB. Soft threshold at 80%, hard at 95%.
+    /// Default: 4 GB. For internet-scale lab set to 12000.
+    #[serde(default = "default_memory_budget_mb")]
+    pub memory_budget_mb: u64,
+    /// Maximum inbound events per second before rate shedding activates.
+    /// Default: 500_000 (internet table injection rate).
+    #[serde(default = "default_rate_budget_eps")]
+    pub rate_budget_eps:  u64,
+    /// BMP message types that can be dropped under rate pressure.
+    /// Valid values: "stats", "bgpls_prefix"
+    #[serde(default = "default_sheddable")]
+    pub sheddable_types:  Vec<String>,
+}
+
+fn default_sheddable() -> Vec<String> { vec!["stats".to_string()] }
+
+impl Default for GovernorConfig {
+    fn default() -> Self {
+        Self {
+            memory_budget_mb: default_memory_budget_mb(),
+            rate_budget_eps:  default_rate_budget_eps(),
+            sheddable_types:  default_sheddable(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Config {
     #[serde(default)]
@@ -49,6 +81,9 @@ pub struct Config {
     /// When absent, defaults to `runtime/vault.json`.
     #[serde(default = "default_vault_path")]
     pub vault_path: String,
+    /// Resource governor thresholds (RV8-GOV1)
+    #[serde(default)]
+    pub governor: GovernorConfig,
 }
 
 impl Config {

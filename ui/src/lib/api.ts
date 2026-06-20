@@ -173,6 +173,33 @@ export const api = {
     }).then(r => r.json()),
   filterReload: () =>
     fetch('/api/filters/reload', { method: 'POST' }).then(r => r.json()),
+
+  // ── RV8 new endpoints ──────────────────────────────────────────────────────
+
+  // Adaptive homepage: per-speaker aggregated summary (RV8-UX3)
+  speakersSummary: () =>
+    get<{
+      speakers: {
+        addr: string; hostname: string; vendor: string; bmp_state: string;
+        peers_up: number; peers_down: number; route_count: number; connected_at: string;
+      }[];
+      count: number; total_peers_up: number; total_routes: number;
+      has_speakers: boolean; has_active_sessions: boolean;
+    }>('/api/speakers/summary'),
+
+  // Resource governor status (RV8-GOV2)
+  governance: () =>
+    get<{
+      profile: string; memory_budget_mb: number; rate_budget_eps: number;
+      memory_pressure_active: boolean; write_pressure_active: boolean;
+      rate_shedding_active: boolean; memory_shrink_count: number;
+      write_batch_expand_count: number; rate_shed_count: number;
+    }>('/api/governance'),
+
+  // External prefix visibility (RV8-EXT5)
+  prefixVisibility: (prefix: string) =>
+    get<{ prefix: string; internal: unknown; external: unknown; discrepancies: string[] }>(
+      '/api/external/prefix-visibility', { prefix }),
 };
 
 /** Open the SSE /api/events stream and call onEvent for each event. */

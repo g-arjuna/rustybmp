@@ -10,6 +10,7 @@ use rbmp_enrichment::CredentialVault;
 use rbmp_rib::event::RibEvent;
 use crate::api::policy_fetch::FetchJob;
 use crate::config::{AuthConfig, SpeakerRegistry};
+use crate::governor::ResourceGovernor;
 use metrics_exporter_prometheus::PrometheusHandle;
 
 #[derive(Clone)]
@@ -26,4 +27,6 @@ pub struct AppState {
     pub vault:      Arc<CredentialVault>,
     /// RV7-V3: In-process policy fetch job registry
     pub policy_jobs: Arc<std::sync::Mutex<HashMap<String, FetchJob>>>,
+    /// RV8-GOV1: Three-loop resource governor
+    pub governor:   ResourceGovernor,
 }

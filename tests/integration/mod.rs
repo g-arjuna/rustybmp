@@ -8,3 +8,4 @@
 ///   cargo test --test integration -- --nocapture
 pub mod bmp_pdu;
 pub mod frr_bmp;
+pub mod mcp_tools;

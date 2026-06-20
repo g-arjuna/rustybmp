@@ -286,6 +286,152 @@ class BgpToolsClient:
             return 0
 
 
+# ─── RIPE STAT client (RV8-EXT1) ─────────────────────────────────────────────
+
+@dataclass
+class RipeStatResult:
+    """Aggregated result from RIPE STAT data calls."""
+    prefix:           str
+    announced:        bool               = False
+    visibility_peers: int                = 0
+    visibility_pct:   float              = 0.0
+    origin_asns:      List[int]          = field(default_factory=list)
+    covering_roas:    List[dict]         = field(default_factory=list)
+    first_seen:       Optional[str]      = None
+    last_seen:        Optional[str]      = None
+    country:          str                = ""
+    rir:              str                = ""
+    raw:              dict               = field(default_factory=dict)
+
+
+class RipeStatClient:
+    """
+    Query the RIPE STAT public REST API (https://stat.ripe.net/docs/02.data-api/).
+
+    No API key required — uses the public data endpoints.
+    Rate limit: ~30 req/min per IP; this client adds a small delay.
+    """
+
+    _BASE = "https://stat.ripe.net/data"
+
+    def __init__(self, timeout: float = 15.0, source_app: str = "rustybmp") -> None:
+        self.timeout    = timeout
+        self.source_app = source_app
+
+    def _headers(self) -> dict:
+        return {"User-Agent": f"{self.source_app}/0.8.0"}
+
+    async def prefix_overview(self, prefix: str) -> RipeStatResult:
+        """
+        Fetch prefix overview: announced status, origin ASNs, visibility.
+        Combines prefix-overview and visibility data calls.
+        """
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            overview_task    = client.get(
+                f"{self._BASE}/prefix-overview/data.json",
+                params={"resource": prefix, "sourceapp": self.source_app},
+                headers=self._headers(),
+            )
+            visibility_task  = client.get(
+                f"{self._BASE}/visibility/data.json",
+                params={"resource": prefix, "sourceapp": self.source_app},
+                headers=self._headers(),
+            )
+            rpki_task        = client.get(
+                f"{self._BASE}/rpki-validation/data.json",
+                params={"resource": prefix, "sourceapp": self.source_app},
+                headers=self._headers(),
+            )
+
+            try:
+                ov_resp, vis_resp, rpki_resp = await asyncio.gather(
+                    overview_task, visibility_task, rpki_task
+                )
+            except Exception as exc:
+                logger.warning("RIPE STAT parallel fetch failed for %s: %s", prefix, exc)
+                return RipeStatResult(prefix=prefix)
+
+        result = RipeStatResult(prefix=prefix)
+
+        # Prefix overview
+        try:
+            ov = ov_resp.json().get("data", {})
+            result.announced  = ov.get("announced", False)
+            result.origin_asns = [int(a["asn"]) for a in ov.get("asns", []) if "asn" in a]
+            result.country    = ov.get("block", {}).get("country", "")
+            result.rir        = ov.get("block", {}).get("registry", "")
+        except Exception as exc:
+            logger.debug("RIPE STAT prefix-overview parse error for %s: %s", prefix, exc)
+
+        # Visibility
+        try:
+            vis = vis_resp.json().get("data", {})
+            peers            = vis.get("visibilities", [])
+            if peers:
+                latest = max(peers, key=lambda p: p.get("probe_ts", ""))
+                result.visibility_peers = latest.get("full_table_peer_count", 0)
+                total_peers             = latest.get("total_ris_peers", 0)
+                if total_peers > 0:
+                    result.visibility_pct = round(
+                        result.visibility_peers / total_peers * 100, 1
+                    )
+        except Exception as exc:
+            logger.debug("RIPE STAT visibility parse error for %s: %s", prefix, exc)
+
+        # RPKI / ROAs
+        try:
+            rpki = rpki_resp.json().get("data", {})
+            result.covering_roas = rpki.get("validating_roas", [])
+        except Exception as exc:
+            logger.debug("RIPE STAT rpki parse error for %s: %s", prefix, exc)
+
+        return result
+
+    async def routing_history(
+        self,
+        prefix:     str,
+        start_time: Optional[str] = None,
+        end_time:   Optional[str] = None,
+    ) -> List[dict]:
+        """
+        Fetch routing history (announce/withdraw timeline) for a prefix.
+        Returns a list of dicts with 'time', 'action', and 'origin_asn'.
+        """
+        params: dict = {"resource": prefix, "sourceapp": self.source_app}
+        if start_time:
+            params["starttime"] = start_time
+        if end_time:
+            params["endtime"] = end_time
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                r = await client.get(
+                    f"{self._BASE}/routing-history/data.json",
+                    params=params,
+                    headers=self._headers(),
+                )
+                r.raise_for_status()
+                data = r.json().get("data", {})
+            return data.get("by_origin", [])
+        except Exception as exc:
+            logger.debug("RIPE STAT routing-history failed for %s: %s", prefix, exc)
+            return []
+
+    async def asn_neighbours(self, asn: int) -> dict:
+        """Return upstream and downstream neighbours for an ASN."""
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                r = await client.get(
+                    f"{self._BASE}/asn-neighbours/data.json",
+                    params={"resource": f"AS{asn}", "sourceapp": self.source_app},
+                    headers=self._headers(),
+                )
+                r.raise_for_status()
+                return r.json().get("data", {})
+        except Exception as exc:
+            logger.debug("RIPE STAT asn-neighbours failed for AS%d: %s", asn, exc)
+            return {}
+
+
 # ─── Aggregate helper ─────────────────────────────────────────────────────────
 
 async def resolve_origin(

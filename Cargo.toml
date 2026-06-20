@@ -92,6 +92,9 @@ rustls-pemfile   = "2"
 # NATS (RV4-7)
 async-nats       = "0.37"
 
+# Async traits (RV8-OUT1)
+async-trait      = "0.1"
+
 # Filter expression language (RV5-1)
 pest             = "2"
 pest_derive      = "2"
