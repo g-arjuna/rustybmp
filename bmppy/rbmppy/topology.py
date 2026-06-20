@@ -22,6 +22,7 @@ Usage::
 """
 from __future__ import annotations
 
+import time
 from typing import Optional
 
 try:
@@ -45,13 +46,16 @@ class BgpLsTopology:
     The graph is built once on instantiation.  Call rebuild() to refresh.
     """
 
-    def __init__(self, analytics: RouteAnalytics) -> None:
+    def __init__(self, analytics: RouteAnalytics, ttl_secs: float = 60.0) -> None:
         self.G: nx.DiGraph = nx.DiGraph()
         self._analytics = analytics
+        self._ttl = ttl_secs
+        self._loaded_at: float = 0.0
         self._load()
 
     def _load(self) -> None:
         conn = self._analytics.conn
+        self._loaded_at = time.monotonic()
 
         # Check tables exist before querying
         tables = {
@@ -100,8 +104,10 @@ class BgpLsTopology:
                         srlg=row.get("srlg_groups"),
                     )
 
-    def rebuild(self) -> None:
-        """Reload graph from DuckDB (call after new BGP-LS data arrives)."""
+    def rebuild(self, force: bool = False) -> None:
+        """Reload graph from DuckDB, respecting TTL cache (skip if data is fresh)."""
+        if not force and (time.monotonic() - self._loaded_at) < self._ttl:
+            return
         self.G.clear()
         self._load()
 
@@ -184,16 +190,31 @@ class AsTopology:
         self._load(analytics, days, limit)
 
     def _load(self, analytics: RouteAnalytics, days: int, limit: int) -> None:
+        # Use DISTINCT pairs to avoid inflating edge weights with duplicate paths
         df = analytics.conn.execute(
-            f"""SELECT as_path FROM route_events
-                WHERE action = 'announce' AND as_path IS NOT NULL AND as_path <> ''
-                  AND occurred_at >= NOW() - INTERVAL '{days}' DAY
-                LIMIT {limit}"""
+            f"""SELECT DISTINCT
+                    CAST(asn_src AS INTEGER) AS asn_src,
+                    CAST(asn_dst AS INTEGER) AS asn_dst
+                FROM (
+                    SELECT
+                        list_transform(
+                            list_slice(string_split(trim(as_path), ' '), 1, -2),
+                            x -> TRY_CAST(x AS INTEGER)
+                        ) AS src_list,
+                        list_transform(
+                            list_slice(string_split(trim(as_path), ' '), 2, -1),
+                            x -> TRY_CAST(x AS INTEGER)
+                        ) AS dst_list
+                    FROM route_events
+                    WHERE action = 'announce'
+                      AND as_path IS NOT NULL AND as_path <> ''
+                      AND occurred_at >= NOW() - INTERVAL '{days}' DAY
+                    LIMIT {limit}
+                ), UNNEST(src_list) AS t(asn_src), UNNEST(dst_list) AS t2(asn_dst)
+                WHERE asn_src IS NOT NULL AND asn_dst IS NOT NULL"""
         ).df()
         for _, row in df.iterrows():
-            asns = [int(a) for a in str(row["as_path"]).split() if a.isdigit()]
-            for i in range(len(asns) - 1):
-                self.G.add_edge(asns[i], asns[i + 1])
+            self.G.add_edge(int(row["asn_src"]), int(row["asn_dst"]))
 
     def neighbors(self, asn: int) -> list[int]:
         """Direct AS neighbours (both upstream and downstream)."""

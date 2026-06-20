@@ -14,7 +14,8 @@
     loading = true;
     const params: Record<string, string> = { limit: String(limit) };
     if (search) params.prefix = search;
-    routes  = await api.routes(params).catch(() => []);
+    const res = await api.routes(params).catch(() => ({ routes: [] }));
+    routes  = res.routes;
     loading = false;
   }
 
@@ -94,7 +95,12 @@
         <tbody>
           {#each filtered as r}
             <tr class="border-b border-gray-800/50 hover:bg-gray-800/30 transition-colors">
-              <td class="px-4 py-2.5 font-mono text-emerald-300 text-xs">{r.prefix}</td>
+              <td class="px-4 py-2.5 font-mono text-xs">
+                <a
+                  href="/prefix/{encodeURIComponent(r.prefix)}"
+                  class="text-emerald-300 hover:text-emerald-200 hover:underline"
+                >{r.prefix}</a>
+              </td>
               <td class="px-4 py-2.5 font-mono text-gray-400 text-xs">{r.peer_addr}</td>
               <td class="px-4 py-2.5">
                 <span class="px-1.5 py-0.5 rounded text-xs font-medium

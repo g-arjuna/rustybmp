@@ -9,7 +9,8 @@
 
   async function load() {
     loading = true;
-    peers = await api.peers().catch(() => []);
+    const res = await api.peers().catch(() => ({ peers: [] }));
+    peers = (res.peers ?? []) as PeerSummary[];
     loading = false;
   }
 
@@ -63,7 +64,12 @@
         <tbody>
           {#each filtered as peer}
             <tr class="border-b border-gray-800/50 hover:bg-gray-800/30 transition-colors">
-              <td class="px-4 py-3 font-mono text-gray-200">{peer.peer_addr}</td>
+              <td class="px-4 py-3 font-mono">
+                <a href="/peers/{encodeURIComponent(peer.peer_addr)}"
+                   class="text-blue-400 hover:text-blue-300 hover:underline">
+                  {peer.peer_addr}
+                </a>
+              </td>
               <td class="px-4 py-3 text-gray-400">AS{peer.peer_as}</td>
               <td class="px-4 py-3 text-gray-400">{peer.rib_type}</td>
               <td class="px-4 py-3">

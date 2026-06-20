@@ -62,6 +62,11 @@ redis_url   = "redis://localhost:6379"
 instance_id = "core-1"
 lease_secs  = 10
 
+# ── Filter expression language (RV5-1) ───────────────────────────────────────
+# Path to YAML filter file. Hot-reloaded on save — no restart needed.
+# Supports PEG expressions: "rpki == 'invalid' AND prefix_len > 24"
+# filter_file = "config/filters.yaml"
+
 [registry]
 # Known BMP speaker metadata — enriches /api/speakers with hostname/vendor/site
 # [[registry.speakers]]

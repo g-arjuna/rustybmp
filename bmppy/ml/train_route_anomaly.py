@@ -49,6 +49,70 @@ FEATURE_COLS = [
     "occurred_at_s",
 ]
 
+RPKI_ENC = {"valid": 0, "not_found": 1, "invalid": 2}
+
+
+def _prepare_features(df: "pd.DataFrame") -> "pd.DataFrame":
+    """Derive any missing feature columns from raw route_events / parquet columns."""
+    out = df.copy()
+
+    # hop_count: prefer as_path_len, else count tokens in as_path
+    if "hop_count" not in out.columns:
+        if "as_path_len" in out.columns:
+            out["hop_count"] = out["as_path_len"].fillna(0)
+        elif "as_path" in out.columns:
+            out["hop_count"] = out["as_path"].fillna("").apply(
+                lambda p: len(p.strip().split()) if p.strip() else 0
+            )
+        else:
+            out["hop_count"] = 0
+
+    # origin_asn: last token of as_path
+    if "origin_asn" not in out.columns:
+        if "as_path" in out.columns:
+            def _last_asn(p) -> int:
+                if not isinstance(p, str) or not p.strip():
+                    return 0
+                tokens = p.strip().split()
+                try:
+                    return int(tokens[-1])
+                except (ValueError, IndexError):
+                    return 0
+            out["origin_asn"] = out["as_path"].apply(_last_asn)
+        else:
+            out["origin_asn"] = 0
+
+    # is_announce: 1 if announce, 0 if withdraw
+    if "is_announce" not in out.columns and "action" in out.columns:
+        out["is_announce"] = (out["action"] == "announce").astype(int)
+
+    # community_count: number of communities in comma-separated field
+    if "community_count" not in out.columns and "communities" in out.columns:
+        out["community_count"] = out["communities"].fillna("").apply(
+            lambda c: len(c.split(",")) if c.strip() else 0
+        )
+
+    # rpki_enc: encode validity string → int
+    if "rpki_enc" not in out.columns:
+        col = "rpki_validity" if "rpki_validity" in out.columns else None
+        if col:
+            out["rpki_enc"] = out[col].map(RPKI_ENC).fillna(1)  # default not_found
+        else:
+            out["rpki_enc"] = 1
+
+    # occurred_at_s: unix timestamp seconds
+    if "occurred_at_s" not in out.columns and "occurred_at" in out.columns:
+        out["occurred_at_s"] = pd.to_datetime(
+            out["occurred_at"], utc=True, errors="coerce"
+        ).astype("int64") // 10**9
+
+    # Ensure all feature columns exist
+    for col in FEATURE_COLS:
+        if col not in out.columns:
+            out[col] = 0
+
+    return out
+
 
 class RouteAnomalyModel:
     """Wrapper around a trained IsolationForest pipeline."""
@@ -67,6 +131,7 @@ class RouteAnomalyModel:
         random_state: int = 42,
     ) -> "RouteAnomalyModel":
         """Train on a feature DataFrame. Returns a fitted model."""
+        df = _prepare_features(df)
         X = df[FEATURE_COLS].fillna(0).astype(float)
         pipeline = Pipeline([
             ("scaler", StandardScaler()),
@@ -95,12 +160,14 @@ class RouteAnomalyModel:
 
     def predict(self, df: "pd.DataFrame") -> "np.ndarray":
         """Return IsolationForest predictions: 1 = normal, -1 = anomalous."""
+        df = _prepare_features(df)
         X = df[FEATURE_COLS].fillna(0).astype(float)
         return self.pipeline.predict(X)
 
     def score_df(self, df: "pd.DataFrame") -> "pd.DataFrame":
         """Return input DataFrame with added 'anomaly_score' and 'is_anomaly' columns."""
-        X      = df[FEATURE_COLS].fillna(0).astype(float)
+        df = _prepare_features(df)
+        X  = df[FEATURE_COLS].fillna(0).astype(float)
         scores = self.pipeline.named_steps["iso_forest"].score_samples(
             self.pipeline.named_steps["scaler"].transform(X)
         )
@@ -119,8 +186,9 @@ def main() -> None:
     args = parser.parse_args()
 
     print(f"Loading {args.input} …")
-    df = pd.read_parquet(args.input, columns=FEATURE_COLS)
-    print(f"  {len(df):,} rows, {df.shape[1]} features")
+    df = pd.read_parquet(args.input)
+    df = _prepare_features(df)
+    print(f"  {len(df):,} rows  ({df.shape[1]} total cols, {len(FEATURE_COLS)} features used)")
 
     print("Training IsolationForest …")
     model = RouteAnomalyModel.train(

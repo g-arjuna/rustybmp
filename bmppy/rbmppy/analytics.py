@@ -399,5 +399,156 @@ class RouteAnalytics:
             "flap_events":      flap_events,
         }
 
+    def export_prefix_aggregates(
+        self,
+        out_path: str,
+        days: int = 7,
+    ) -> int:
+        """Export per-prefix aggregate features to Parquet for STGNN/IsolationForest training.
+
+        Columns: prefix, origin_asn, peer_count, announce_count, withdraw_count,
+                 churn_rate_1h, avg_path_len, rpki_invalid_ratio, community_count,
+                 first_seen, last_seen.
+
+        Returns the number of rows written.
+        """
+        try:
+            import pandas as pd
+        except ImportError as e:
+            raise ImportError("pandas required: pip install pandas") from e
+
+        import pathlib
+        pathlib.Path(out_path).parent.mkdir(parents=True, exist_ok=True)
+
+        df = self.conn.execute(f"""
+            WITH base AS (
+                SELECT
+                    prefix,
+                    -- origin ASN: last token of as_path
+                    TRY_CAST(
+                        list_last(string_split(trim(as_path), ' '))
+                    AS UINTEGER)                                             AS origin_asn,
+                    peer_addr,
+                    action,
+                    occurred_at,
+                    as_path_len,
+                    rpki_validity,
+                    communities
+                FROM route_events
+                WHERE occurred_at >= NOW() - INTERVAL '{days} days'
+            ),
+            agg AS (
+                SELECT
+                    prefix,
+                    mode(origin_asn)                                         AS origin_asn,
+                    COUNT(DISTINCT peer_addr)                                 AS peer_count,
+                    COUNT(*) FILTER (WHERE action='announce')                 AS announce_count,
+                    COUNT(*) FILTER (WHERE action='withdraw')                 AS withdraw_count,
+                    COUNT(*) FILTER (
+                        WHERE occurred_at >= NOW() - INTERVAL '1 hour'
+                    )::FLOAT / GREATEST(1, 3600)                             AS churn_rate_1h,
+                    AVG(as_path_len) FILTER (WHERE action='announce')        AS avg_path_len,
+                    AVG(CASE WHEN rpki_validity='invalid' THEN 1.0 ELSE 0.0 END) AS rpki_invalid_ratio,
+                    AVG(
+                        CASE WHEN communities IS NOT NULL AND communities <> ''
+                        THEN len(string_split(communities, ','))
+                        ELSE 0 END
+                    )                                                         AS community_count,
+                    MIN(occurred_at)                                          AS first_seen,
+                    MAX(occurred_at)                                          AS last_seen
+                FROM base
+                GROUP BY prefix
+            )
+            SELECT * FROM agg ORDER BY announce_count DESC
+        """).df()
+
+        df.to_parquet(out_path, index=False)
+        return len(df)
+
+    def write_anomalies(
+        self,
+        db_path: str,
+        lookback_hours: int = 24,
+    ) -> int:
+        """Run anomaly detection and persist results to the ml_anomalies DuckDB table.
+
+        Creates the table if it doesn't exist (using a writable connection).
+        Returns the number of anomaly rows written.
+        """
+        import duckdb as _duckdb
+
+        report = self.anomaly_report(lookback_hours=lookback_hours)
+        rows = []
+
+        for prefix, z in report["zscore_anomalies"]:
+            if abs(z) > 3.0:
+                rows.append({
+                    "detected_at": __import__("datetime").datetime.utcnow().isoformat(),
+                    "kind":        "churn_zscore",
+                    "prefix":      prefix,
+                    "peer_addr":   None,
+                    "score":       z,
+                    "description": f"Z-score={z:.2f} exceeds threshold",
+                    "severity":    "warn" if abs(z) < 5 else "critical",
+                })
+
+        for alert in report["hijack_alerts"]:
+            rows.append({
+                "detected_at": __import__("datetime").datetime.utcnow().isoformat(),
+                "kind":        alert.kind,
+                "prefix":      alert.prefix,
+                "peer_addr":   alert.peer_addr,
+                "score":       None,
+                "description": (
+                    f"origin_change {alert.old_origin} → {alert.new_origin}"
+                    if alert.kind == "origin_change"
+                    else f"path_shortening on {alert.prefix}"
+                ),
+                "severity":    "critical",
+            })
+
+        for alert in report["flap_events"]:
+            rows.append({
+                "detected_at": __import__("datetime").datetime.utcnow().isoformat(),
+                "kind":        "flap",
+                "prefix":      None,
+                "peer_addr":   alert.peer_addr,
+                "score":       float(alert.flap_count),
+                "description": f"{alert.flap_count} flaps in {alert.window_secs}s",
+                "severity":    alert.severity,
+            })
+
+        if not rows:
+            return 0
+
+        try:
+            import pandas as _pd
+        except ImportError as e:
+            raise ImportError("pandas required: pip install pandas") from e
+
+        df = _pd.DataFrame(rows)
+        conn_w = _duckdb.connect(db_path, read_only=False)
+        try:
+            conn_w.execute("""
+                CREATE TABLE IF NOT EXISTS ml_anomalies (
+                    id          INTEGER PRIMARY KEY,
+                    detected_at TIMESTAMPTZ NOT NULL,
+                    kind        VARCHAR     NOT NULL,
+                    prefix      VARCHAR,
+                    peer_addr   VARCHAR,
+                    score       DOUBLE,
+                    description VARCHAR,
+                    severity    VARCHAR
+                )
+            """)
+            conn_w.execute(
+                "INSERT INTO ml_anomalies (detected_at,kind,prefix,peer_addr,score,description,severity) "
+                "SELECT detected_at,kind,prefix,peer_addr,score,description,severity FROM df"
+            )
+            conn_w.commit()
+        finally:
+            conn_w.close()
+        return len(rows)
+
     def close(self):
         self.conn.close()

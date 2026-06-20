@@ -3,9 +3,11 @@ pub mod table;
 pub mod manager;
 pub mod event;
 pub mod filter;
+pub mod filter_expr;
 
 pub use session::{BmpSession, PeerSession, PeerState};
 pub use table::RibTable;
 pub use manager::RibManager;
 pub use event::{RibEvent, RouteAction};
-pub use filter::{FilterEngine, FilterVerdict, RouteFilter, FilterAction};
+pub use filter::{FilterEngine, FilterVerdict, RouteFilter, FilterAction, build_route_ctx};
+pub use filter_expr::{Expr, RouteCtx, parse_expr};

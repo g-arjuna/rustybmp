@@ -1,4 +1,5 @@
-use axum::{extract::{Path, State}, Json, http::StatusCode};
+use axum::{extract::{Path, Query, State}, Json, http::StatusCode};
+use serde::Deserialize;
 use serde_json::{json, Value};
 use crate::state::AppState;
 
@@ -9,9 +10,9 @@ pub async fn list_speakers(State(state): State<AppState>) -> Json<Value> {
         let meta     = state.registry.lookup(&addr_str);
         json!({
             "addr":         addr_str,
-            "hostname":     meta.map(|m| m.hostname.as_str()).unwrap_or(""),
-            "vendor":       meta.map(|m| m.vendor.as_str()).unwrap_or(""),
-            "site":         meta.map(|m| m.site.as_str()).unwrap_or(""),
+            "hostname":     meta.as_ref().map(|m| m.hostname.as_str()).unwrap_or(""),
+            "vendor":       meta.as_ref().map(|m| m.vendor.as_str()).unwrap_or(""),
+            "site":         meta.as_ref().map(|m| m.site.as_str()).unwrap_or(""),
             "sys_name":     s.sys_name,
             "sys_descr":    s.sys_descr,
             "connected_at": s.connected_at.to_rfc3339(),
@@ -35,9 +36,9 @@ pub async fn get_speaker(
             let meta     = state.registry.lookup(&addr_str);
             Ok(Json(json!({
             "addr":         addr_str,
-            "hostname":     meta.map(|m| m.hostname.as_str()).unwrap_or(""),
-            "vendor":       meta.map(|m| m.vendor.as_str()).unwrap_or(""),
-            "site":         meta.map(|m| m.site.as_str()).unwrap_or(""),
+            "hostname":     meta.as_ref().map(|m| m.hostname.as_str()).unwrap_or(""),
+            "vendor":       meta.as_ref().map(|m| m.vendor.as_str()).unwrap_or(""),
+            "site":         meta.as_ref().map(|m| m.site.as_str()).unwrap_or(""),
             "sys_name":     s.sys_name,
             "sys_descr":    s.sys_descr,
             "connected_at": s.connected_at.to_rfc3339(),
@@ -99,4 +100,23 @@ pub async fn get_peer(
         }
     }
     Err(StatusCode::NOT_FOUND)
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TimelineQuery {
+    #[serde(default = "default_days")]
+    pub days: u32,
+}
+fn default_days() -> u32 { 7 }
+
+/// GET /api/peers/{addr}/timeline?days=7
+pub async fn peer_timeline(
+    Path(addr):   Path<String>,
+    Query(q):     Query<TimelineQuery>,
+    State(state): State<AppState>,
+) -> Result<Json<Value>, StatusCode> {
+    let timeline = state.queries
+        .peer_session_timeline(&addr, q.days)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(json!({ "peer_addr": addr, "days": q.days, "timeline": timeline })))
 }

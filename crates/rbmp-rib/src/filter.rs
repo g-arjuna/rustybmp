@@ -1,7 +1,9 @@
+use std::collections::HashSet;
 use std::net::IpAddr;
 use ipnet::{IpNet, Ipv4Net, Ipv6Net};
 use serde::{Deserialize, Serialize};
 use rbmp_core::bgp::types::{PathAttributes, Prefix};
+use crate::filter_expr::{Expr, RouteCtx, parse_expr};
 
 // ─── YAML DSL types ──────────────────────────────────────────────────────────
 
@@ -45,6 +47,11 @@ pub struct RouteFilter {
     pub local_pref_max: Option<u32>,
     /// Match if MED <= this value
     pub med_max:        Option<u32>,
+    /// Optional predicate expression (PEG-parsed). When present, this
+    /// expression is evaluated IN ADDITION TO the field-level criteria above.
+    /// Example: `"rpki == 'invalid' AND prefix_len > 24"`
+    #[serde(default)]
+    pub expr:           Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -74,6 +81,8 @@ struct CompiledFilter {
     raw:       RouteFilter,
     nets:      Vec<IpNet>,
     peer_nets: Vec<IpAddr>,
+    /// Compiled expression AST (from `raw.expr`, if present)
+    compiled_expr: Option<Expr>,
 }
 
 impl CompiledFilter {
@@ -84,11 +93,20 @@ impl CompiledFilter {
         let peer_nets = raw.peer_addr_list.iter()
             .filter_map(|s| s.parse::<IpAddr>().ok())
             .collect();
-        Self { raw, nets, peer_nets }
+        let compiled_expr = raw.expr.as_deref().and_then(|e| {
+            match parse_expr(e) {
+                Ok(expr) => Some(expr),
+                Err(err) => {
+                    tracing::warn!(filter = %raw.name, %err, "invalid filter expr — ignored");
+                    None
+                }
+            }
+        });
+        Self { raw, nets, peer_nets, compiled_expr }
     }
 
     /// Returns true if every populated criterion on this filter matches the route.
-    fn matches(&self, prefix: &Prefix, peer_as: u32, peer_addr: IpAddr, attrs: &PathAttributes) -> bool {
+    fn matches(&self, prefix: &Prefix, peer_as: u32, peer_addr: IpAddr, attrs: &PathAttributes, ctx: Option<&RouteCtx>) -> bool {
         // ── Prefix list ───────────────────────────────────────────────────────
         if !self.nets.is_empty() {
             // Extract the innermost V4/V6 address regardless of label/VPN wrapping
@@ -148,7 +166,57 @@ impl CompiledFilter {
             if attrs.multi_exit_disc.unwrap_or(0) > max_med { return false; }
         }
 
+        // ── Expression predicate ────────────────────────────────────────────────
+        if let (Some(compiled), Some(route_ctx)) = (&self.compiled_expr, ctx) {
+            if !compiled.eval(route_ctx) {
+                return false;
+            }
+        }
+
         true
+    }
+}
+
+// ─── RouteCtx builder ────────────────────────────────────────────────────────
+
+/// Build a `RouteCtx` from BMP route data for expression evaluation.
+pub fn build_route_ctx(
+    prefix:    &Prefix,
+    peer_as:   u32,
+    action:    &str,
+    attrs:     &PathAttributes,
+    rpki:      Option<&str>,
+) -> RouteCtx {
+    let prefix_len = match prefix {
+        Prefix::V4(n)                    => n.prefix_len(),
+        Prefix::V6(n)                    => n.prefix_len(),
+        Prefix::Labeled { prefix, .. }   => build_route_ctx(prefix, peer_as, action, attrs, rpki).prefix_len,
+        Prefix::Vpn     { prefix, .. }   => build_route_ctx(prefix, peer_as, action, attrs, rpki).prefix_len,
+    };
+
+    let as_path_asns: Vec<u32> = attrs.as_path.as_ref()
+        .map(|p| p.0.iter().flat_map(|seg| seg.asns().iter().copied()).collect())
+        .unwrap_or_default();
+
+    let origin_asn = as_path_asns.last().copied().unwrap_or(0);
+
+    let has_prepend = as_path_asns.windows(2).any(|w| w[0] == w[1]);
+
+    let community_set: HashSet<String> = attrs.communities.iter()
+        .map(|c| format!("{}:{}", c.asn(), c.value()))
+        .collect();
+
+    RouteCtx {
+        prefix_len,
+        as_path_len:   as_path_asns.len(),
+        origin_asn,
+        has_prepend,
+        rpki:          rpki.unwrap_or("unknown").to_string(),
+        action:        action.to_string(),
+        peer_as,
+        local_pref:    attrs.local_pref,
+        med:           attrs.multi_exit_disc,
+        community_set,
     }
 }
 
@@ -191,8 +259,38 @@ impl FilterEngine {
         peer_addr: IpAddr,
         attrs:     &PathAttributes,
     ) -> (FilterVerdict, Option<&str>) {
+        // Build RouteCtx once — only if at least one filter has an expr
+        let needs_ctx = self.filters.iter().any(|f| f.compiled_expr.is_some());
+        let ctx = if needs_ctx {
+            Some(build_route_ctx(prefix, peer_as, "announce", attrs, None))
+        } else {
+            None
+        };
         for cf in &self.filters {
-            if cf.matches(prefix, peer_as, peer_addr, attrs) {
+            if cf.matches(prefix, peer_as, peer_addr, attrs, ctx.as_ref()) {
+                let verdict = match cf.raw.action {
+                    FilterAction::Accept | FilterAction::Tag => FilterVerdict::Accept,
+                    FilterAction::Deny                       => FilterVerdict::Deny,
+                };
+                return (verdict, Some(&cf.raw.name));
+            }
+        }
+        (FilterVerdict::Default, None)
+    }
+
+    /// Apply the filter chain with a caller-supplied `RouteCtx` — use this
+    /// variant when the RPKI validity is already known (e.g. after VrpCache
+    /// lookup) so expressions can reference `rpki == 'invalid'` accurately.
+    pub fn apply_with_ctx(
+        &self,
+        prefix:    &Prefix,
+        peer_as:   u32,
+        peer_addr: IpAddr,
+        attrs:     &PathAttributes,
+        route_ctx: Option<&RouteCtx>,
+    ) -> (FilterVerdict, Option<&str>) {
+        for cf in &self.filters {
+            if cf.matches(prefix, peer_as, peer_addr, attrs, route_ctx) {
                 let verdict = match cf.raw.action {
                     FilterAction::Accept | FilterAction::Tag => FilterVerdict::Accept,
                     FilterAction::Deny                       => FilterVerdict::Deny,
@@ -310,5 +408,42 @@ mod tests {
         let (v, name) = engine.apply(&v4("0.0.0.0/0"), 1, peer(), &attrs);
         assert_eq!(v, FilterVerdict::Default);
         assert!(name.is_none());
+    }
+
+    #[test]
+    fn test_filter_reject_invalid_and_too_specific() {
+        let yaml = r#"
+- name: rpki-invalid-too-specific
+  action: deny
+  expr: "prefix_len > 24"
+"#;
+        let engine = FilterEngine::load_yaml(yaml).unwrap();
+        let attrs = make_attrs(None, None);
+
+        // /25 — too specific — should be denied
+        let (v, name) = engine.apply(&v4("203.0.113.0/25"), 65001, peer(), &attrs);
+        assert_eq!(v, FilterVerdict::Deny);
+        assert_eq!(name, Some("rpki-invalid-too-specific"));
+
+        // /24 — exactly 24 — NOT > 24, should default-accept
+        let (v2, _) = engine.apply(&v4("203.0.113.0/24"), 65001, peer(), &attrs);
+        assert_eq!(v2, FilterVerdict::Default);
+    }
+
+    #[test]
+    fn test_filter_peer_as_in_expr() {
+        let yaml = r#"
+- name: tag-tier1
+  action: accept
+  expr: "peer_as IN [701, 1299, 3356]"
+"#;
+        let engine = FilterEngine::load_yaml(yaml).unwrap();
+        let attrs = make_attrs(None, None);
+
+        let (v, _) = engine.apply(&v4("1.0.0.0/24"), 3356, peer(), &attrs);
+        assert_eq!(v, FilterVerdict::Accept);
+
+        let (v2, _) = engine.apply(&v4("1.0.0.0/24"), 65001, peer(), &attrs);
+        assert_eq!(v2, FilterVerdict::Default);
     }
 }

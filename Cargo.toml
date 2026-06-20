@@ -92,6 +92,13 @@ rustls-pemfile   = "2"
 # NATS (RV4-7)
 async-nats       = "0.37"
 
+# Filter expression language (RV5-1)
+pest             = "2"
+pest_derive      = "2"
+
+# Hot-reload file watcher (RV5-1)
+notify           = { version = "6", default-features = false, features = ["macos_kqueue"] }
+
 # workspace crates
 rbmp-core        = { path = "crates/rbmp-core" }
 rbmp-rib         = { path = "crates/rbmp-rib" }

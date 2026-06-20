@@ -64,14 +64,42 @@ async function get<T>(path: string, params?: Record<string, string>): Promise<T>
 
 export const api = {
   health:    () => get<{ status: string }>('/health'),
-  peers:     () => get<PeerSummary[]>('/api/peers'),
-  speakers:  () => get<SpeakerSummary[]>('/api/speakers'),
-  routes:    (params?: Record<string, string>) => get<RouteRow[]>('/api/routes', params),
-  churn:     () => get<[string, number][]>('/api/analytics/churn'),
-  origins:   () => get<[number, number][]>('/api/analytics/origins'),
+  peers:     () => get<{ peers: unknown[] }>('/api/peers'),
+  speakers:  () => get<{ speakers: unknown[] }>('/api/speakers'),
+  routes:    (params?: Record<string, string>) => get<{ routes: RouteRow[] }>('/api/routes', params),
+  churn:     () => get<{ prefixes: [string, number][] }>('/api/analytics/churn'),
+  origins:   () => get<{ origins: [number, number][] }>('/api/analytics/origins'),
   bgplsGraph: (protocol?: string) =>
     get<TopologyGraph>('/api/bgpls/graph', protocol ? { protocol } : undefined),
   rpkiStats: () => get<Record<string, number>>('/api/rpki/stats'),
+
+  // Prefix Explorer (RV5-2)
+  prefixTimeline: (prefix: string, days = 7) =>
+    get<{ prefix: string; timeline: { bucket: string; action: string; count: number }[] }>(
+      `/api/routes/prefix/${encodeURIComponent(prefix)}/timeline`, { days: String(days) }),
+  prefixPeers: (prefix: string) =>
+    get<{ prefix: string; peers: unknown[]; count: number }>(
+      `/api/routes/prefix/${encodeURIComponent(prefix)}/peers`),
+  prefixConvergence: (prefix: string, limit = 50) =>
+    get<{ prefix: string; events: unknown[] }>(
+      `/api/routes/prefix/${encodeURIComponent(prefix)}/convergence`, { limit: String(limit) }),
+
+  // RPKI analysis (RV5-4)
+  rpkiAnalysis: () => get<{ breakdown: unknown[]; per_peer: unknown[] }>('/api/rpki/analysis'),
+
+  // Policy delta (RV5-5)
+  policyDelta: (peer: string) =>
+    get<{ peer_addr: string; by_rib_type: unknown[] }>('/api/policy', { peer }),
+
+  // Peer session timeline (RV5-6)
+  peerTimeline: (addr: string, days = 7) =>
+    get<{ peer_addr: string; timeline: unknown[] }>(
+      `/api/peers/${encodeURIComponent(addr)}/timeline`, { days: String(days) }),
+
+  // ML anomalies (RV5-9)
+  mlAnomalies: (limit = 100, kind?: string) =>
+    get<{ anomalies: unknown[]; count: number }>(
+      '/api/ml/anomalies', { limit: String(limit), ...(kind ? { kind } : {}) }),
 };
 
 /** Open the SSE /api/events stream and call onEvent for each event. */

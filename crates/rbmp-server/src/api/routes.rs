@@ -88,3 +88,84 @@ pub async fn route_changes(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(Json(json!({ "changes": changes, "count": changes.len() })))
 }
+
+// ─── Prefix Explorer endpoints (RV5-2) ────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+pub struct TimelineQuery {
+    #[serde(default = "default_days")]
+    pub days: u32,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ConvergenceQuery {
+    #[serde(default = "default_limit")]
+    pub limit: usize,
+}
+
+fn default_days() -> u32 { 7 }
+
+/// GET /api/routes/prefix/{prefix}/timeline?days=7
+pub async fn prefix_timeline(
+    Path(prefix):   Path<String>,
+    Query(q):       Query<TimelineQuery>,
+    State(state):   State<AppState>,
+) -> Result<Json<Value>, StatusCode> {
+    let prefix_decoded = urlencoding_decode(&prefix);
+    let timeline = state.queries
+        .prefix_timeline(&prefix_decoded, q.days)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(json!({ "prefix": prefix_decoded, "days": q.days, "timeline": timeline })))
+}
+
+/// GET /api/routes/prefix/{prefix}/peers
+pub async fn prefix_peers(
+    Path(prefix): Path<String>,
+    State(state): State<AppState>,
+) -> Result<Json<Value>, StatusCode> {
+    let prefix_decoded = urlencoding_decode(&prefix);
+    let peers = state.queries
+        .prefix_peers(&prefix_decoded)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(json!({ "prefix": prefix_decoded, "peers": peers, "count": peers.len() })))
+}
+
+/// GET /api/routes/prefix/{prefix}/convergence?limit=50
+pub async fn prefix_convergence(
+    Path(prefix): Path<String>,
+    Query(q):     Query<ConvergenceQuery>,
+    State(state): State<AppState>,
+) -> Result<Json<Value>, StatusCode> {
+    let prefix_decoded = urlencoding_decode(&prefix);
+    let events = state.queries
+        .prefix_convergence(&prefix_decoded, q.limit)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(json!({ "prefix": prefix_decoded, "events": events })))
+}
+
+/// GET /api/rpki/analysis
+pub async fn rpki_analysis(
+    State(state): State<AppState>,
+) -> Result<Json<Value>, StatusCode> {
+    let analysis = state.queries
+        .rpki_analysis()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(analysis))
+}
+
+/// GET /api/policy?peer={addr}
+pub async fn policy_delta(
+    Query(params): Query<std::collections::HashMap<String, String>>,
+    State(state):  State<AppState>,
+) -> Result<Json<Value>, StatusCode> {
+    let peer_addr = params.get("peer").map(|s| s.as_str()).unwrap_or("");
+    let delta = state.queries
+        .policy_delta(peer_addr)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(delta))
+}
+
+/// Decode percent-encoded slashes in prefix path segments (e.g. "192.0.2.0%2F24" → "192.0.2.0/24")
+fn urlencoding_decode(s: &str) -> String {
+    s.replace("%2F", "/").replace("%2f", "/")
+}

@@ -87,6 +87,18 @@ CREATE TABLE IF NOT EXISTS evpn_events (
     esi_hex         VARCHAR                -- 10-byte ESI as hex string
 );
 
+-- ML anomaly detections (written by Python pipeline, read by /api/ml/anomalies)
+CREATE TABLE IF NOT EXISTS ml_anomalies (
+    id          INTEGER,
+    detected_at TIMESTAMPTZ NOT NULL,
+    kind        VARCHAR     NOT NULL,   -- 'churn_zscore' | 'origin_change' | 'path_shortening' | 'flap'
+    prefix      VARCHAR,               -- NULL for peer-level anomalies
+    peer_addr   VARCHAR,               -- NULL for prefix-level anomalies
+    score       DOUBLE,                -- anomaly score (z-score, IF score, flap count…)
+    description VARCHAR,
+    severity    VARCHAR                -- 'info' | 'warn' | 'critical'
+);
+
 -- Indexes for common query patterns
 CREATE INDEX IF NOT EXISTS idx_route_events_prefix     ON route_events (prefix);
 CREATE INDEX IF NOT EXISTS idx_route_events_peer       ON route_events (peer_addr);

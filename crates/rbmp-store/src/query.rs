@@ -2,6 +2,7 @@ use std::sync::{Arc, Mutex};
 use duckdb::Row;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use crate::duck::RouteStore;
 
 /// A flattened route row returned by queries
@@ -135,6 +136,216 @@ impl QueryEngine {
             let asn: u32 = row.get(0)?;
             let cnt: u64 = row.get(1)?;
             Ok((asn, cnt))
+        })?.filter_map(|r| r.ok()).collect();
+        Ok(rows)
+    }
+
+    /// Prefix timeline — announce/withdraw events bucketed by hour for the last N days
+    pub fn prefix_timeline(&self, prefix: &str, days: u32) -> Result<Vec<serde_json::Value>> {
+        let locked = self.store.lock().unwrap();
+        let conn = locked.conn();
+        let sql = format!(
+            r#"SELECT
+                time_bucket(INTERVAL '1 hour', occurred_at) AS bucket,
+                action,
+                COUNT(*) AS event_count
+               FROM route_events
+               WHERE prefix = '{prefix}'
+                 AND occurred_at >= NOW() - INTERVAL '{days} days'
+               GROUP BY bucket, action
+               ORDER BY bucket"#
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map([], |row| {
+            let bucket: String    = row.get(0)?;
+            let action: String    = row.get(1)?;
+            let count:  u64       = row.get(2)?;
+            Ok(serde_json::json!({ "bucket": bucket, "action": action, "count": count }))
+        })?.filter_map(|r| r.ok()).collect();
+        Ok(rows)
+    }
+
+    /// Which peers currently see a prefix and their most recent AS_PATH
+    pub fn prefix_peers(&self, prefix: &str) -> Result<Vec<serde_json::Value>> {
+        let locked = self.store.lock().unwrap();
+        let conn = locked.conn();
+        let sql = format!(
+            r#"SELECT peer_addr, peer_as, as_path, next_hop, local_pref, communities,
+                      occurred_at
+               FROM (
+                 SELECT *, ROW_NUMBER() OVER (PARTITION BY peer_addr ORDER BY occurred_at DESC) AS rn
+                 FROM route_events
+                 WHERE prefix = '{prefix}' AND action = 'announce'
+               ) t WHERE rn = 1
+               ORDER BY peer_addr"#
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map([], |row| {
+            let peer_addr:  String         = row.get(0)?;
+            let peer_as:    u32            = row.get(1)?;
+            let as_path:    Option<String> = row.get(2)?;
+            let next_hop:   Option<String> = row.get(3)?;
+            let local_pref: Option<u32>    = row.get(4)?;
+            let communities: Option<String> = row.get(5)?;
+            let occurred_at: String        = row.get(6)?;
+            Ok(serde_json::json!({
+                "peer_addr": peer_addr, "peer_as": peer_as,
+                "as_path": as_path, "next_hop": next_hop,
+                "local_pref": local_pref, "communities": communities,
+                "last_seen": occurred_at
+            }))
+        })?.filter_map(|r| r.ok()).collect();
+        Ok(rows)
+    }
+
+    /// Convergence times for the last N events on a prefix
+    /// Returns the gap in seconds between sequential announce events per peer
+    pub fn prefix_convergence(&self, prefix: &str, limit: usize) -> Result<Vec<serde_json::Value>> {
+        let locked = self.store.lock().unwrap();
+        let conn = locked.conn();
+        let sql = format!(
+            r#"SELECT
+                peer_addr,
+                occurred_at,
+                action,
+                epoch(occurred_at) - lag(epoch(occurred_at)) OVER (PARTITION BY peer_addr ORDER BY occurred_at) AS gap_secs
+               FROM route_events
+               WHERE prefix = '{prefix}'
+               ORDER BY occurred_at DESC
+               LIMIT {limit}"#
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map([], |row| {
+            let peer_addr:  String     = row.get(0)?;
+            let occurred_at: String    = row.get(1)?;
+            let action:     String     = row.get(2)?;
+            let gap_secs:   Option<f64> = row.get(3)?;
+            Ok(serde_json::json!({
+                "peer_addr": peer_addr,
+                "occurred_at": occurred_at,
+                "action": action,
+                "gap_secs": gap_secs
+            }))
+        })?.filter_map(|r| r.ok()).collect();
+        Ok(rows)
+    }
+
+    /// Peer session timeline — up/down events in last N days with duration
+    pub fn peer_session_timeline(&self, peer_addr: &str, days: u32) -> Result<Vec<serde_json::Value>> {
+        let locked = self.store.lock().unwrap();
+        let conn = locked.conn();
+        let sql = format!(
+            r#"SELECT occurred_at, event_type, reason,
+                      epoch(lead(occurred_at) OVER (ORDER BY occurred_at)) - epoch(occurred_at) AS duration_secs
+               FROM peer_events
+               WHERE peer_addr = '{peer_addr}'
+                 AND occurred_at >= NOW() - INTERVAL '{days} days'
+               ORDER BY occurred_at DESC"#
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map([], |row| {
+            let occurred_at:   String     = row.get(0)?;
+            let event_type:    String     = row.get(1)?;
+            let reason:        Option<String> = row.get(2)?;
+            let duration_secs: Option<f64>   = row.get(3)?;
+            Ok(serde_json::json!({
+                "occurred_at": occurred_at,
+                "event_type": event_type,
+                "reason": reason,
+                "duration_secs": duration_secs
+            }))
+        })?.filter_map(|r| r.ok()).collect();
+        Ok(rows)
+    }
+
+    /// RPKI analysis — breakdown by validity + per-peer invalid rates
+    pub fn rpki_analysis(&self) -> Result<serde_json::Value> {
+        let locked = self.store.lock().unwrap();
+        let conn = locked.conn();
+
+        // Overall breakdown
+        let breakdown_sql = r#"SELECT rpki_validity, COUNT(DISTINCT prefix) AS cnt
+            FROM (
+              SELECT prefix, rpki_validity,
+                     ROW_NUMBER() OVER (PARTITION BY prefix ORDER BY occurred_at DESC) AS rn
+              FROM route_events WHERE action = 'announce'
+            ) t WHERE rn = 1
+            GROUP BY rpki_validity ORDER BY cnt DESC"#;
+        let mut stmt = conn.prepare(breakdown_sql)?;
+        let breakdown: Vec<serde_json::Value> = stmt.query_map([], |row| {
+            let validity: Option<String> = row.get(0)?;
+            let cnt: u64 = row.get(1)?;
+            Ok(serde_json::json!({ "validity": validity.unwrap_or_else(|| "unknown".into()), "count": cnt }))
+        })?.filter_map(|r| r.ok()).collect();
+
+        // Per-peer invalid rate
+        let peer_sql = r#"SELECT peer_addr, peer_as,
+                SUM(CASE WHEN rpki_validity='invalid' THEN 1 ELSE 0 END)::FLOAT / COUNT(*) AS invalid_rate,
+                COUNT(*) AS total
+            FROM route_events WHERE action = 'announce'
+            GROUP BY peer_addr, peer_as ORDER BY invalid_rate DESC LIMIT 20"#;
+        let mut stmt2 = conn.prepare(peer_sql)?;
+        let per_peer: Vec<serde_json::Value> = stmt2.query_map([], |row| {
+            let peer_addr:    String = row.get(0)?;
+            let peer_as:      u32    = row.get(1)?;
+            let invalid_rate: f64    = row.get(2)?;
+            let total:        u64    = row.get(3)?;
+            Ok(serde_json::json!({ "peer_addr": peer_addr, "peer_as": peer_as, "invalid_rate": invalid_rate, "total": total }))
+        })?.filter_map(|r| r.ok()).collect();
+
+        Ok(serde_json::json!({ "breakdown": breakdown, "per_peer": per_peer }))
+    }
+
+    /// Policy analysis — pre vs post-policy diff for a peer
+    pub fn policy_delta(&self, peer_addr: &str) -> Result<serde_json::Value> {
+        let locked = self.store.lock().unwrap();
+        let conn = locked.conn();
+        let sql = format!(
+            r#"SELECT rib_type, COUNT(DISTINCT prefix) AS prefix_count
+               FROM (
+                 SELECT prefix, rib_type,
+                        ROW_NUMBER() OVER (PARTITION BY prefix, rib_type ORDER BY occurred_at DESC) AS rn
+                 FROM route_events WHERE peer_addr = '{peer_addr}' AND action = 'announce'
+               ) t WHERE rn = 1
+               GROUP BY rib_type"#
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let by_rib: Vec<serde_json::Value> = stmt.query_map([], |row| {
+            let rib_type:      String = row.get(0)?;
+            let prefix_count:  u64   = row.get(1)?;
+            Ok(serde_json::json!({ "rib_type": rib_type, "prefix_count": prefix_count }))
+        })?.filter_map(|r| r.ok()).collect();
+
+        Ok(serde_json::json!({ "peer_addr": peer_addr, "by_rib_type": by_rib }))
+    }
+
+    /// ML anomaly detections from the Python pipeline (most recent first)
+    pub fn ml_anomalies(&self, limit: usize, kind: Option<&str>) -> Result<Vec<Value>> {
+        let locked = self.store.lock().unwrap();
+        let conn   = locked.conn();
+        let kind_filter = kind.map(|k| format!("AND kind = '{k}'")).unwrap_or_default();
+        let sql = format!(
+            r#"SELECT detected_at, kind, prefix, peer_addr, score, description, severity
+               FROM ml_anomalies
+               WHERE 1=1 {kind_filter}
+               ORDER BY detected_at DESC
+               LIMIT {limit}"#
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map([], |row| {
+            let detected_at: String    = row.get(0)?;
+            let kind:        String    = row.get(1)?;
+            let prefix:      Option<String> = row.get(2)?;
+            let peer_addr:   Option<String> = row.get(3)?;
+            let score:       Option<f64>    = row.get(4)?;
+            let description: Option<String> = row.get(5)?;
+            let severity:    Option<String> = row.get(6)?;
+            Ok(serde_json::json!({
+                "detected_at": detected_at, "kind": kind,
+                "prefix": prefix, "peer_addr": peer_addr,
+                "score": score, "description": description,
+                "severity": severity
+            }))
         })?.filter_map(|r| r.ok()).collect();
         Ok(rows)
     }

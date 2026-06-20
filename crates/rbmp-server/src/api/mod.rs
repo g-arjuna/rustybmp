@@ -5,6 +5,8 @@ pub mod stats;
 pub mod health;
 pub mod export;
 pub mod topology;
+pub mod ml;
+pub mod onboard;
 
 use std::sync::Arc;
 use axum::{Router, routing::{get, post}, middleware};
@@ -27,14 +29,30 @@ pub fn build_router(state: AppState) -> Router {
         .route("/peers/{addr}",        get(peers::get_peer))
         .route("/peers/{addr}/rib",    get(routes::get_peer_rib))
         // Routes
-        .route("/routes",              get(routes::list_routes))
-        .route("/routes/prefix",       get(routes::prefix_history))
-        .route("/routes/changes",      get(routes::route_changes))
+        .route("/routes",                                   get(routes::list_routes))
+        .route("/routes/prefix",                            get(routes::prefix_history))
+        .route("/routes/changes",                           get(routes::route_changes))
+        // Prefix Explorer (RV5-2)
+        .route("/routes/prefix/{prefix}/timeline",          get(routes::prefix_timeline))
+        .route("/routes/prefix/{prefix}/peers",             get(routes::prefix_peers))
+        .route("/routes/prefix/{prefix}/convergence",       get(routes::prefix_convergence))
         // Analytics
         .route("/analytics/churn",     get(stats::top_churn))
         .route("/analytics/origins",   get(stats::as_origins))
-        // RPKI
+        // RPKI (RV5-4)
         .route("/rpki/stats",          get(stats::rpki_stats))
+        .route("/rpki/analysis",       get(routes::rpki_analysis))
+        // Policy analysis (RV5-5)
+        .route("/policy",              get(routes::policy_delta))
+        // Peer timeline (RV5-6)
+        .route("/peers/{addr}/timeline", get(peers::peer_timeline))
+        // ML anomalies (RV5-9)
+        .route("/ml/anomalies",           get(ml::list_anomalies))
+        // Speaker onboarding (RV5-7)
+        .route("/onboard/{addr}/validate", get(onboard::validate_speaker))
+        .route("/onboard/{addr}/register", post(onboard::register_speaker))
+        .route("/onboard/{addr}/filter",   post(onboard::apply_filter))
+        .route("/onboard/{addr}/confirm",  get(onboard::confirm_speaker))
         // BGP-LS topology graph (RV4-6)
         .route("/bgpls/graph",         get(topology::bgpls_graph))
         // Parquet export (RV4-2)

@@ -1,0 +1,1486 @@
+diff --git a/Cargo.toml b/Cargo.toml
+index 94c75a1..b0809ce 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -92,6 +92,13 @@ rustls-pemfile   = "2"
+ # NATS (RV4-7)
+ async-nats       = "0.37"
+ 
++# Filter expression language (RV5-1)
++pest             = "2"
++pest_derive      = "2"
++
++# Hot-reload file watcher (RV5-1)
++notify           = { version = "6", default-features = false, features = ["macos_kqueue"] }
++
+ # workspace crates
+ rbmp-core        = { path = "crates/rbmp-core" }
+ rbmp-rib         = { path = "crates/rbmp-rib" }
+diff --git a/RUSTYBMP_PROJECT_CONTEXT.md b/RUSTYBMP_PROJECT_CONTEXT.md
+index 1a244df..e5a9afb 100644
+--- a/RUSTYBMP_PROJECT_CONTEXT.md
++++ b/RUSTYBMP_PROJECT_CONTEXT.md
+@@ -1,92 +1,90 @@
+ # RUSTYBMP — Project Context Reference
+-## Updated: 2026-06-20 | RV4 Sprint | Retain in Claude Project
++## Updated: 2026-06-20 | RV5 Sprint | Retain in Claude Project
+ 
+ ---
+ 
+-## What this project is
++## Project status: RV4 complete (7 crates, Svelte UI, ML pipeline, full security)
+ 
+-RustyBMP: Rust-first BGP Monitoring Protocol (BMP) collector. BMP/BGP exclusive.
+-Dev cycle: Mac → GitHub → Ubuntu 24 + XRD ContainerLab.
+-Next session: Upload rv4_all_changes.patch.
+-
+----
+-
+-## Codebase State (post-RV3, going into RV4)
+-
+-### Workspace (7 crates, 49 tests passing)
++### Workspace crates (post-RV4)
+ ```
+-rbmp-core         — BMP RFC7854+8671+9069+9972 + BGP EVPN(1-11)+SR Policy+BGP-LS(full TLVs)+Flowspec+RTC
+-rbmp-rib          — RIB + LLGR state machine (Normal/StaleMarked/Deleted) + YAML filter DSL + session
+-rbmp-store        — DuckDB: route_events/peer_events/speaker_events/stats_events/evpn_events; collector_id column; 500-msg batched writes
+-rbmp-server       — TCP recv + archive + governor + HTTP API + Prometheus + Kafka sink + DNS PTR + BMP proxy + Core collector listener (:5001)
+-rbmp-enrichment   — VrpCache + RtrClient (RTR RFC 8210) + EnrichmentEngine
+-rbmp-kafka        — Kafka output (rdkafka FutureProducer, lz4, typed topics)
+-rbmp-mrt          — MRT RFC 6396 reader + writer (BGP4MP + TABLE_DUMP_V2, 8 tests)
++rbmp-core         — BMP RFC7854+8671+9069+9972 + BGP EVPN(1-11)+SR Policy+BGP-LS full+Flowspec+RTC+SRv6+VPLS
++rbmp-rib          — RIB + LLGR + YAML filter DSL (expression parser in RV5)
++rbmp-store        — DuckDB + retention (hourly sweep) + Parquet export API
++rbmp-server       — TCP recv + JWT auth + TLS + HA (Redis) + Kafka + DNS + Proxy + Collector listener
++rbmp-enrichment   — RTR RPKI client (VrpCache)
++rbmp-kafka        — Kafka output (rdkafka, lz4)
++rbmp-mrt          — MRT RFC 6396 reader/writer
++rbmp-nats         — NATS output (async-nats)
+ ```
+ 
+-### Python (bmppy/rbmppy/) — complete
+-- client.py, stream.py, models.py — full HTTP + SSE client
+-- analytics.py — ZScoreMonitor (IMACSI 2025 eq.2-4), HijackDetector, RouteLeakDetector, FlapScorer
+-- rpki.py — RtrVrpCache, RFC 6810 validation, poll_rtr_cache()
+-- internet.py — IrrClient, RdapClient, BgpToolsClient, resolve_origin()
+-- detectors.py — 4 detectors + DetectorPipeline
++### Python (bmppy/)
++- rbmppy: client, stream, models, analytics (Z-score+hijack+leak+flap), rpki, internet, detectors, parquet, topology
++- ml: train_route_anomaly (IsolationForest), topology_snapshot (to_pyg stub), parquet_store
+ 
+-### Distributed deployment
+-- rbmp-collector binary: edge BMP→Core forwarder (MessagePack, 4-byte length, 8MiB max, try_send ring buffer)
+-- Core listener: :5001 TCP for CollectorEnvelope frames
+-- All events tagged with collector_id
++### UI (Svelte 5, 5 pages)
++- Dashboard: stat cards + live SSE feed
++- Peers: table with search
++- Prefixes: live route table
++- Topology: D3 BGP-LS force-directed graph
++- Alerts: SSE-backed alert list
+ 
+ ---
+ 
+-## RV3 Key Decisions (reference)
+-- D9: MRT body_len +2 bug caught by tests
+-- D10: MessagePack over TCP (simpler than Protobuf, self-describing)
+-- D11: try_send() drop at collector (don't back-pressure BMP TCP session)
+-- D12: Core re-parses raw BMP bytes (collector is just a framer)
+-- D13: origin_as = last integer in as_path string (known limitation with AS_SETs)
+-- D14: Linear VRP scan O(n) adequate at 400K VRPs
++## Confirmed out of scope (RV6)
++- Active BGP session connector (requires full BGP FSM, cross-project with Rotonda)
++- BGPsec path validation (requires RPKI router certs + per-UPDATE crypto)
++- MCAST-VPN full RFC 6514 type decode (stub arm in bgp/types.rs preserves raw bytes)
+ 
+ ---
+ 
+-## Bonsai Architecture Questions — Final Answers
+-
+-### Graph DB (KuzuDB): NOT for rustybmp
+-Bonsai needs graph DB because it has physical topology from LLDP+gNMI. RustyBMP is BMP-only.
+-BGP-LS data in DuckDB bgpls_nodes/bgpls_links is the topology store.
+-Solution: Python NetworkX graph derived from DuckDB (rbmppy/topology.py, RV4-6).
+-
+-### Parquet for ML: YES — high value, trivially implemented
+-DuckDB exports Parquet natively (single SQL statement).
+-Adapt bonsai's ML pipeline:
+-- parquet.py: DuckDB → Parquet export
+-- ml/train_route_anomaly.py: IsolationForest on route features (adapted from bonsai train_anomaly.py)
+-- ml/topology_snapshot.py: BGP peer graph snapshots for STGNN (adapted from bonsai snapshot_store.py)
+-RV4-4 epic covers this.
++## RV5 priorities
++
++### P0 — Filter expression language (closes Rotonda gap)
++- `filter_expr.rs`: Expr AST + RouteCtx + eval()
++- `filter.pest`: PEG grammar via pest crate
++- YAML `expr:` field: `"rpki == 'invalid' AND prefix_len > 24"`
++- Hot-reload via inotify (notify crate)
++
++### P0 — ML completions
++- `topology_snapshot.to_pyg()` — HeteroData edge tensors
++- `train_bgp_stgnn.py` — GATv2-GRU STGNN (NEW)
++- `export_prefix_aggregates()` — windowed aggregation in parquet.py
++- Fix IsolationForest: use per-prefix aggregated features, not per-event rows
++- `ml_anomalies` DuckDB table + API + UI page
++
++### P0 — UI: Prefix Explorer
++- `/ui/src/routes/prefix/[prefix]/+page.svelte`
++- Announcement timeline + AS path per peer + event history + enrichment
++
++### P1 — Device Onboarding Wizard
++- Register speaker + BMP config snippet generator (XRD, Junos, SRL, FRR)
++- BMP connection test endpoint
++- EOR onboarding progress tracker
++
++### P1 — Missing UI pages
++- AS Path Visualizer (D3 DAG)
++- RPKI Analysis page
++- Policy Analysis (pre vs post-policy diff)
++- Peer health timeline
++- BMP Stats viewer (RFC 9972)
++- SR Policy view
++
++### P2 — Operational improvements
++- SR Policy events DuckDB table (was deferred from RV3-1)
++- Topology graph TTL cache (60s)
++- AsTopology using distinct AS pairs query
+ 
+ ---
+ 
+-## RV4 Sprint Targets
+-
+-| Epic | Title | Priority |
+-|------|-------|----------|
+-| RV4-1 | Security: JWT auth, TLS, token bucket rate limiting | P0 |
+-| RV4-2 | DuckDB retention policy + Parquet export API | P0 |
+-| RV4-3 | Svelte 5 UI dashboard | P1 |
+-| RV4-4 | ML pipeline: Parquet export + IsolationForest + STGNN prep | P1 |
+-| RV4-5 | Protocol: SRv6 SID NLRI (SAFI 72), VPLS, OTC wiring | P1 |
+-| RV4-6 | BGP topology graph: NetworkX from BGP-LS DuckDB | P1 |
+-| RV4-7 | HA leader election + NATS output | P2 |
+-| RV4-8 | Dockerfile + docker-compose + GitHub Actions CI | P0 |
+-| RV4-9 | Integration tests + cargo bench + Ubuntu testing runbook | P0 |
+-
+-## Uncovered README areas (genuinely still missing)
+-1. API authentication — NO AUTH currently (critical gap)
+-2. TLS for BMP connections — plaintext only
+-3. DuckDB retention — grows forever
+-4. UI dashboard — zero frontend code
+-5. Integration tests — unit tests only
+-6. CI/CD pipeline
+-7. Dockerfile
+-8. Parquet ML pipeline
+-9. BGP topology graph (NetworkX)
+-10. SRv6 SID NLRI SAFI 72
++## RV4 decisions to remember
++- JWT HS256, config-gated (disabled by default)
++- TLS via rustls + tokio-rustls, build_acceptor() returns Option<TlsAcceptor>
++- HA: Redis SETNX, AtomicBool shared leader flag, always-leader when disabled
++- Retention: hourly sweep, skips first tick (no sweep on startup)
++- Parquet export: ALLOWED_TABLES whitelist prevents SQL injection
++
++## Filter gap vs Rotonda
++- Our YAML DSL: linear scan, fixed predicates, no expressions
++- Our RV5 addition: PEG-parsed expressions via pest (AND/OR/NOT, comparisons, IN sets)
++- Rotonda Roto: compiled to machine code, more powerful, still no loops
++- Gap remaining after RV5: multi-RIB routing (different RIBs per filter result) — RV6
+diff --git a/bmppy/ml/train_route_anomaly.py b/bmppy/ml/train_route_anomaly.py
+index ce26b28..e20db39 100644
+--- a/bmppy/ml/train_route_anomaly.py
++++ b/bmppy/ml/train_route_anomaly.py
+@@ -49,6 +49,70 @@ FEATURE_COLS = [
+     "occurred_at_s",
+ ]
+ 
++RPKI_ENC = {"valid": 0, "not_found": 1, "invalid": 2}
++
++
++def _prepare_features(df: "pd.DataFrame") -> "pd.DataFrame":
++    """Derive any missing feature columns from raw route_events / parquet columns."""
++    out = df.copy()
++
++    # hop_count: prefer as_path_len, else count tokens in as_path
++    if "hop_count" not in out.columns:
++        if "as_path_len" in out.columns:
++            out["hop_count"] = out["as_path_len"].fillna(0)
++        elif "as_path" in out.columns:
++            out["hop_count"] = out["as_path"].fillna("").apply(
++                lambda p: len(p.strip().split()) if p.strip() else 0
++            )
++        else:
++            out["hop_count"] = 0
++
++    # origin_asn: last token of as_path
++    if "origin_asn" not in out.columns:
++        if "as_path" in out.columns:
++            def _last_asn(p) -> int:
++                if not isinstance(p, str) or not p.strip():
++                    return 0
++                tokens = p.strip().split()
++                try:
++                    return int(tokens[-1])
++                except (ValueError, IndexError):
++                    return 0
++            out["origin_asn"] = out["as_path"].apply(_last_asn)
++        else:
++            out["origin_asn"] = 0
++
++    # is_announce: 1 if announce, 0 if withdraw
++    if "is_announce" not in out.columns and "action" in out.columns:
++        out["is_announce"] = (out["action"] == "announce").astype(int)
++
++    # community_count: number of communities in comma-separated field
++    if "community_count" not in out.columns and "communities" in out.columns:
++        out["community_count"] = out["communities"].fillna("").apply(
++            lambda c: len(c.split(",")) if c.strip() else 0
++        )
++
++    # rpki_enc: encode validity string → int
++    if "rpki_enc" not in out.columns:
++        col = "rpki_validity" if "rpki_validity" in out.columns else None
++        if col:
++            out["rpki_enc"] = out[col].map(RPKI_ENC).fillna(1)  # default not_found
++        else:
++            out["rpki_enc"] = 1
++
++    # occurred_at_s: unix timestamp seconds
++    if "occurred_at_s" not in out.columns and "occurred_at" in out.columns:
++        out["occurred_at_s"] = pd.to_datetime(
++            out["occurred_at"], utc=True, errors="coerce"
++        ).astype("int64") // 10**9
++
++    # Ensure all feature columns exist
++    for col in FEATURE_COLS:
++        if col not in out.columns:
++            out[col] = 0
++
++    return out
++
+ 
+ class RouteAnomalyModel:
+     """Wrapper around a trained IsolationForest pipeline."""
+@@ -67,6 +131,7 @@ class RouteAnomalyModel:
+         random_state: int = 42,
+     ) -> "RouteAnomalyModel":
+         """Train on a feature DataFrame. Returns a fitted model."""
++        df = _prepare_features(df)
+         X = df[FEATURE_COLS].fillna(0).astype(float)
+         pipeline = Pipeline([
+             ("scaler", StandardScaler()),
+@@ -95,12 +160,14 @@ class RouteAnomalyModel:
+ 
+     def predict(self, df: "pd.DataFrame") -> "np.ndarray":
+         """Return IsolationForest predictions: 1 = normal, -1 = anomalous."""
++        df = _prepare_features(df)
+         X = df[FEATURE_COLS].fillna(0).astype(float)
+         return self.pipeline.predict(X)
+ 
+     def score_df(self, df: "pd.DataFrame") -> "pd.DataFrame":
+         """Return input DataFrame with added 'anomaly_score' and 'is_anomaly' columns."""
+-        X      = df[FEATURE_COLS].fillna(0).astype(float)
++        df = _prepare_features(df)
++        X  = df[FEATURE_COLS].fillna(0).astype(float)
+         scores = self.pipeline.named_steps["iso_forest"].score_samples(
+             self.pipeline.named_steps["scaler"].transform(X)
+         )
+@@ -119,8 +186,9 @@ def main() -> None:
+     args = parser.parse_args()
+ 
+     print(f"Loading {args.input} …")
+-    df = pd.read_parquet(args.input, columns=FEATURE_COLS)
+-    print(f"  {len(df):,} rows, {df.shape[1]} features")
++    df = pd.read_parquet(args.input)
++    df = _prepare_features(df)
++    print(f"  {len(df):,} rows  ({df.shape[1]} total cols, {len(FEATURE_COLS)} features used)")
+ 
+     print("Training IsolationForest …")
+     model = RouteAnomalyModel.train(
+diff --git a/bmppy/rbmppy/analytics.py b/bmppy/rbmppy/analytics.py
+index a156e8d..86968b4 100644
+--- a/bmppy/rbmppy/analytics.py
++++ b/bmppy/rbmppy/analytics.py
+@@ -399,5 +399,156 @@ class RouteAnalytics:
+             "flap_events":      flap_events,
+         }
+ 
++    def export_prefix_aggregates(
++        self,
++        out_path: str,
++        days: int = 7,
++    ) -> int:
++        """Export per-prefix aggregate features to Parquet for STGNN/IsolationForest training.
++
++        Columns: prefix, origin_asn, peer_count, announce_count, withdraw_count,
++                 churn_rate_1h, avg_path_len, rpki_invalid_ratio, community_count,
++                 first_seen, last_seen.
++
++        Returns the number of rows written.
++        """
++        try:
++            import pandas as pd
++        except ImportError as e:
++            raise ImportError("pandas required: pip install pandas") from e
++
++        import pathlib
++        pathlib.Path(out_path).parent.mkdir(parents=True, exist_ok=True)
++
++        df = self.conn.execute(f"""
++            WITH base AS (
++                SELECT
++                    prefix,
++                    -- origin ASN: last token of as_path
++                    TRY_CAST(
++                        list_last(string_split(trim(as_path), ' '))
++                    AS UINTEGER)                                             AS origin_asn,
++                    peer_addr,
++                    action,
++                    occurred_at,
++                    as_path_len,
++                    rpki_validity,
++                    communities
++                FROM route_events
++                WHERE occurred_at >= NOW() - INTERVAL '{days} days'
++            ),
++            agg AS (
++                SELECT
++                    prefix,
++                    mode(origin_asn)                                         AS origin_asn,
++                    COUNT(DISTINCT peer_addr)                                 AS peer_count,
++                    COUNT(*) FILTER (WHERE action='announce')                 AS announce_count,
++                    COUNT(*) FILTER (WHERE action='withdraw')                 AS withdraw_count,
++                    COUNT(*) FILTER (
++                        WHERE occurred_at >= NOW() - INTERVAL '1 hour'
++                    )::FLOAT / GREATEST(1, 3600)                             AS churn_rate_1h,
++                    AVG(as_path_len) FILTER (WHERE action='announce')        AS avg_path_len,
++                    AVG(CASE WHEN rpki_validity='invalid' THEN 1.0 ELSE 0.0 END) AS rpki_invalid_ratio,
++                    AVG(
++                        CASE WHEN communities IS NOT NULL AND communities <> ''
++                        THEN len(string_split(communities, ','))
++                        ELSE 0 END
++                    )                                                         AS community_count,
++                    MIN(occurred_at)                                          AS first_seen,
++                    MAX(occurred_at)                                          AS last_seen
++                FROM base
++                GROUP BY prefix
++            )
++            SELECT * FROM agg ORDER BY announce_count DESC
++        """).df()
++
++        df.to_parquet(out_path, index=False)
++        return len(df)
++
++    def write_anomalies(
++        self,
++        db_path: str,
++        lookback_hours: int = 24,
++    ) -> int:
++        """Run anomaly detection and persist results to the ml_anomalies DuckDB table.
++
++        Creates the table if it doesn't exist (using a writable connection).
++        Returns the number of anomaly rows written.
++        """
++        import duckdb as _duckdb
++
++        report = self.anomaly_report(lookback_hours=lookback_hours)
++        rows = []
++
++        for prefix, z in report["zscore_anomalies"]:
++            if abs(z) > 3.0:
++                rows.append({
++                    "detected_at": __import__("datetime").datetime.utcnow().isoformat(),
++                    "kind":        "churn_zscore",
++                    "prefix":      prefix,
++                    "peer_addr":   None,
++                    "score":       z,
++                    "description": f"Z-score={z:.2f} exceeds threshold",
++                    "severity":    "warn" if abs(z) < 5 else "critical",
++                })
++
++        for alert in report["hijack_alerts"]:
++            rows.append({
++                "detected_at": __import__("datetime").datetime.utcnow().isoformat(),
++                "kind":        alert.kind,
++                "prefix":      alert.prefix,
++                "peer_addr":   alert.peer_addr,
++                "score":       None,
++                "description": (
++                    f"origin_change {alert.old_origin} → {alert.new_origin}"
++                    if alert.kind == "origin_change"
++                    else f"path_shortening on {alert.prefix}"
++                ),
++                "severity":    "critical",
++            })
++
++        for alert in report["flap_events"]:
++            rows.append({
++                "detected_at": __import__("datetime").datetime.utcnow().isoformat(),
++                "kind":        "flap",
++                "prefix":      None,
++                "peer_addr":   alert.peer_addr,
++                "score":       float(alert.flap_count),
++                "description": f"{alert.flap_count} flaps in {alert.window_secs}s",
++                "severity":    alert.severity,
++            })
++
++        if not rows:
++            return 0
++
++        try:
++            import pandas as _pd
++        except ImportError as e:
++            raise ImportError("pandas required: pip install pandas") from e
++
++        df = _pd.DataFrame(rows)
++        conn_w = _duckdb.connect(db_path, read_only=False)
++        try:
++            conn_w.execute("""
++                CREATE TABLE IF NOT EXISTS ml_anomalies (
++                    id          INTEGER PRIMARY KEY,
++                    detected_at TIMESTAMPTZ NOT NULL,
++                    kind        VARCHAR     NOT NULL,
++                    prefix      VARCHAR,
++                    peer_addr   VARCHAR,
++                    score       DOUBLE,
++                    description VARCHAR,
++                    severity    VARCHAR
++                )
++            """)
++            conn_w.execute(
++                "INSERT INTO ml_anomalies (detected_at,kind,prefix,peer_addr,score,description,severity) "
++                "SELECT detected_at,kind,prefix,peer_addr,score,description,severity FROM df"
++            )
++            conn_w.commit()
++        finally:
++            conn_w.close()
++        return len(rows)
++
+     def close(self):
+         self.conn.close()
+diff --git a/bmppy/rbmppy/topology.py b/bmppy/rbmppy/topology.py
+index 64d5988..e3270ca 100644
+--- a/bmppy/rbmppy/topology.py
++++ b/bmppy/rbmppy/topology.py
+@@ -22,6 +22,7 @@ Usage::
+ """
+ from __future__ import annotations
+ 
++import time
+ from typing import Optional
+ 
+ try:
+@@ -45,13 +46,16 @@ class BgpLsTopology:
+     The graph is built once on instantiation.  Call rebuild() to refresh.
+     """
+ 
+-    def __init__(self, analytics: RouteAnalytics) -> None:
++    def __init__(self, analytics: RouteAnalytics, ttl_secs: float = 60.0) -> None:
+         self.G: nx.DiGraph = nx.DiGraph()
+         self._analytics = analytics
++        self._ttl = ttl_secs
++        self._loaded_at: float = 0.0
+         self._load()
+ 
+     def _load(self) -> None:
+         conn = self._analytics.conn
++        self._loaded_at = time.monotonic()
+ 
+         # Check tables exist before querying
+         tables = {
+@@ -100,8 +104,10 @@ class BgpLsTopology:
+                         srlg=row.get("srlg_groups"),
+                     )
+ 
+-    def rebuild(self) -> None:
+-        """Reload graph from DuckDB (call after new BGP-LS data arrives)."""
++    def rebuild(self, force: bool = False) -> None:
++        """Reload graph from DuckDB, respecting TTL cache (skip if data is fresh)."""
++        if not force and (time.monotonic() - self._loaded_at) < self._ttl:
++            return
+         self.G.clear()
+         self._load()
+ 
+@@ -184,16 +190,31 @@ class AsTopology:
+         self._load(analytics, days, limit)
+ 
+     def _load(self, analytics: RouteAnalytics, days: int, limit: int) -> None:
++        # Use DISTINCT pairs to avoid inflating edge weights with duplicate paths
+         df = analytics.conn.execute(
+-            f"""SELECT as_path FROM route_events
+-                WHERE action = 'announce' AND as_path IS NOT NULL AND as_path <> ''
+-                  AND occurred_at >= NOW() - INTERVAL '{days}' DAY
+-                LIMIT {limit}"""
++            f"""SELECT DISTINCT
++                    CAST(asn_src AS INTEGER) AS asn_src,
++                    CAST(asn_dst AS INTEGER) AS asn_dst
++                FROM (
++                    SELECT
++                        list_transform(
++                            list_slice(string_split(trim(as_path), ' '), 1, -2),
++                            x -> TRY_CAST(x AS INTEGER)
++                        ) AS src_list,
++                        list_transform(
++                            list_slice(string_split(trim(as_path), ' '), 2, -1),
++                            x -> TRY_CAST(x AS INTEGER)
++                        ) AS dst_list
++                    FROM route_events
++                    WHERE action = 'announce'
++                      AND as_path IS NOT NULL AND as_path <> ''
++                      AND occurred_at >= NOW() - INTERVAL '{days}' DAY
++                    LIMIT {limit}
++                ), UNNEST(src_list) AS t(asn_src), UNNEST(dst_list) AS t2(asn_dst)
++                WHERE asn_src IS NOT NULL AND asn_dst IS NOT NULL"""
+         ).df()
+         for _, row in df.iterrows():
+-            asns = [int(a) for a in str(row["as_path"]).split() if a.isdigit()]
+-            for i in range(len(asns) - 1):
+-                self.G.add_edge(asns[i], asns[i + 1])
++            self.G.add_edge(int(row["asn_src"]), int(row["asn_dst"]))
+ 
+     def neighbors(self, asn: int) -> list[int]:
+         """Direct AS neighbours (both upstream and downstream)."""
+diff --git a/config/rustybmp.toml.example b/config/rustybmp.toml.example
+index b2769be..3df2da2 100644
+--- a/config/rustybmp.toml.example
++++ b/config/rustybmp.toml.example
+@@ -62,6 +62,11 @@ redis_url   = "redis://localhost:6379"
+ instance_id = "core-1"
+ lease_secs  = 10
+ 
++# ── Filter expression language (RV5-1) ───────────────────────────────────────
++# Path to YAML filter file. Hot-reloaded on save — no restart needed.
++# Supports PEG expressions: "rpki == 'invalid' AND prefix_len > 24"
++# filter_file = "config/filters.yaml"
++
+ [registry]
+ # Known BMP speaker metadata — enriches /api/speakers with hostname/vendor/site
+ # [[registry.speakers]]
+diff --git a/crates/rbmp-rib/Cargo.toml b/crates/rbmp-rib/Cargo.toml
+index fe6f33d..b1b3b79 100644
+--- a/crates/rbmp-rib/Cargo.toml
++++ b/crates/rbmp-rib/Cargo.toml
+@@ -21,3 +21,5 @@ indexmap    = { workspace = true }
+ ipnet       = { workspace = true }
+ tokio       = { workspace = true }
+ metrics     = { workspace = true }
++pest        = { workspace = true }
++pest_derive = { workspace = true }
+diff --git a/crates/rbmp-rib/src/filter.rs b/crates/rbmp-rib/src/filter.rs
+index ada28c5..975e0e1 100644
+--- a/crates/rbmp-rib/src/filter.rs
++++ b/crates/rbmp-rib/src/filter.rs
+@@ -1,7 +1,9 @@
++use std::collections::HashSet;
+ use std::net::IpAddr;
+ use ipnet::{IpNet, Ipv4Net, Ipv6Net};
+ use serde::{Deserialize, Serialize};
+ use rbmp_core::bgp::types::{PathAttributes, Prefix};
++use crate::filter_expr::{Expr, RouteCtx, parse_expr};
+ 
+ // ─── YAML DSL types ──────────────────────────────────────────────────────────
+ 
+@@ -45,6 +47,11 @@ pub struct RouteFilter {
+     pub local_pref_max: Option<u32>,
+     /// Match if MED <= this value
+     pub med_max:        Option<u32>,
++    /// Optional predicate expression (PEG-parsed). When present, this
++    /// expression is evaluated IN ADDITION TO the field-level criteria above.
++    /// Example: `"rpki == 'invalid' AND prefix_len > 24"`
++    #[serde(default)]
++    pub expr:           Option<String>,
+ }
+ 
+ #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+@@ -74,6 +81,8 @@ struct CompiledFilter {
+     raw:       RouteFilter,
+     nets:      Vec<IpNet>,
+     peer_nets: Vec<IpAddr>,
++    /// Compiled expression AST (from `raw.expr`, if present)
++    compiled_expr: Option<Expr>,
+ }
+ 
+ impl CompiledFilter {
+@@ -84,11 +93,20 @@ impl CompiledFilter {
+         let peer_nets = raw.peer_addr_list.iter()
+             .filter_map(|s| s.parse::<IpAddr>().ok())
+             .collect();
+-        Self { raw, nets, peer_nets }
++        let compiled_expr = raw.expr.as_deref().and_then(|e| {
++            match parse_expr(e) {
++                Ok(expr) => Some(expr),
++                Err(err) => {
++                    tracing::warn!(filter = %raw.name, %err, "invalid filter expr — ignored");
++                    None
++                }
++            }
++        });
++        Self { raw, nets, peer_nets, compiled_expr }
+     }
+ 
+     /// Returns true if every populated criterion on this filter matches the route.
+-    fn matches(&self, prefix: &Prefix, peer_as: u32, peer_addr: IpAddr, attrs: &PathAttributes) -> bool {
++    fn matches(&self, prefix: &Prefix, peer_as: u32, peer_addr: IpAddr, attrs: &PathAttributes, ctx: Option<&RouteCtx>) -> bool {
+         // ── Prefix list ───────────────────────────────────────────────────────
+         if !self.nets.is_empty() {
+             // Extract the innermost V4/V6 address regardless of label/VPN wrapping
+@@ -148,10 +166,60 @@ impl CompiledFilter {
+             if attrs.multi_exit_disc.unwrap_or(0) > max_med { return false; }
+         }
+ 
++        // ── Expression predicate ────────────────────────────────────────────────
++        if let (Some(compiled), Some(route_ctx)) = (&self.compiled_expr, ctx) {
++            if !compiled.eval(route_ctx) {
++                return false;
++            }
++        }
++
+         true
+     }
+ }
+ 
++// ─── RouteCtx builder ────────────────────────────────────────────────────────
++
++/// Build a `RouteCtx` from BMP route data for expression evaluation.
++pub fn build_route_ctx(
++    prefix:    &Prefix,
++    peer_as:   u32,
++    action:    &str,
++    attrs:     &PathAttributes,
++    rpki:      Option<&str>,
++) -> RouteCtx {
++    let prefix_len = match prefix {
++        Prefix::V4(n)                    => n.prefix_len(),
++        Prefix::V6(n)                    => n.prefix_len(),
++        Prefix::Labeled { prefix, .. }   => build_route_ctx(prefix, peer_as, action, attrs, rpki).prefix_len,
++        Prefix::Vpn     { prefix, .. }   => build_route_ctx(prefix, peer_as, action, attrs, rpki).prefix_len,
++    };
++
++    let as_path_asns: Vec<u32> = attrs.as_path.as_ref()
++        .map(|p| p.0.iter().flat_map(|seg| seg.asns().iter().copied()).collect())
++        .unwrap_or_default();
++
++    let origin_asn = as_path_asns.last().copied().unwrap_or(0);
++
++    let has_prepend = as_path_asns.windows(2).any(|w| w[0] == w[1]);
++
++    let community_set: HashSet<String> = attrs.communities.iter()
++        .map(|c| format!("{}:{}", c.asn(), c.value()))
++        .collect();
++
++    RouteCtx {
++        prefix_len,
++        as_path_len:   as_path_asns.len(),
++        origin_asn,
++        has_prepend,
++        rpki:          rpki.unwrap_or("unknown").to_string(),
++        action:        action.to_string(),
++        peer_as,
++        local_pref:    attrs.local_pref,
++        med:           attrs.multi_exit_disc,
++        community_set,
++    }
++}
++
+ // ─── FilterEngine ─────────────────────────────────────────────────────────────
+ 
+ /// Holds an ordered list of compiled route filters.
+@@ -191,8 +259,38 @@ impl FilterEngine {
+         peer_addr: IpAddr,
+         attrs:     &PathAttributes,
+     ) -> (FilterVerdict, Option<&str>) {
++        // Build RouteCtx once — only if at least one filter has an expr
++        let needs_ctx = self.filters.iter().any(|f| f.compiled_expr.is_some());
++        let ctx = if needs_ctx {
++            Some(build_route_ctx(prefix, peer_as, "announce", attrs, None))
++        } else {
++            None
++        };
+         for cf in &self.filters {
+-            if cf.matches(prefix, peer_as, peer_addr, attrs) {
++            if cf.matches(prefix, peer_as, peer_addr, attrs, ctx.as_ref()) {
++                let verdict = match cf.raw.action {
++                    FilterAction::Accept | FilterAction::Tag => FilterVerdict::Accept,
++                    FilterAction::Deny                       => FilterVerdict::Deny,
++                };
++                return (verdict, Some(&cf.raw.name));
++            }
++        }
++        (FilterVerdict::Default, None)
++    }
++
++    /// Apply the filter chain with a caller-supplied `RouteCtx` — use this
++    /// variant when the RPKI validity is already known (e.g. after VrpCache
++    /// lookup) so expressions can reference `rpki == 'invalid'` accurately.
++    pub fn apply_with_ctx(
++        &self,
++        prefix:    &Prefix,
++        peer_as:   u32,
++        peer_addr: IpAddr,
++        attrs:     &PathAttributes,
++        route_ctx: Option<&RouteCtx>,
++    ) -> (FilterVerdict, Option<&str>) {
++        for cf in &self.filters {
++            if cf.matches(prefix, peer_as, peer_addr, attrs, route_ctx) {
+                 let verdict = match cf.raw.action {
+                     FilterAction::Accept | FilterAction::Tag => FilterVerdict::Accept,
+                     FilterAction::Deny                       => FilterVerdict::Deny,
+@@ -311,4 +409,41 @@ mod tests {
+         assert_eq!(v, FilterVerdict::Default);
+         assert!(name.is_none());
+     }
++
++    #[test]
++    fn test_filter_reject_invalid_and_too_specific() {
++        let yaml = r#"
++- name: rpki-invalid-too-specific
++  action: deny
++  expr: "prefix_len > 24"
++"#;
++        let engine = FilterEngine::load_yaml(yaml).unwrap();
++        let attrs = make_attrs(None, None);
++
++        // /25 — too specific — should be denied
++        let (v, name) = engine.apply(&v4("203.0.113.0/25"), 65001, peer(), &attrs);
++        assert_eq!(v, FilterVerdict::Deny);
++        assert_eq!(name, Some("rpki-invalid-too-specific"));
++
++        // /24 — exactly 24 — NOT > 24, should default-accept
++        let (v2, _) = engine.apply(&v4("203.0.113.0/24"), 65001, peer(), &attrs);
++        assert_eq!(v2, FilterVerdict::Default);
++    }
++
++    #[test]
++    fn test_filter_peer_as_in_expr() {
++        let yaml = r#"
++- name: tag-tier1
++  action: accept
++  expr: "peer_as IN [701, 1299, 3356]"
++"#;
++        let engine = FilterEngine::load_yaml(yaml).unwrap();
++        let attrs = make_attrs(None, None);
++
++        let (v, _) = engine.apply(&v4("1.0.0.0/24"), 3356, peer(), &attrs);
++        assert_eq!(v, FilterVerdict::Accept);
++
++        let (v2, _) = engine.apply(&v4("1.0.0.0/24"), 65001, peer(), &attrs);
++        assert_eq!(v2, FilterVerdict::Default);
++    }
+ }
+diff --git a/crates/rbmp-rib/src/lib.rs b/crates/rbmp-rib/src/lib.rs
+index 16c7b0a..70433eb 100644
+--- a/crates/rbmp-rib/src/lib.rs
++++ b/crates/rbmp-rib/src/lib.rs
+@@ -3,9 +3,11 @@ pub mod table;
+ pub mod manager;
+ pub mod event;
+ pub mod filter;
++pub mod filter_expr;
+ 
+ pub use session::{BmpSession, PeerSession, PeerState};
+ pub use table::RibTable;
+ pub use manager::RibManager;
+ pub use event::{RibEvent, RouteAction};
+-pub use filter::{FilterEngine, FilterVerdict, RouteFilter, FilterAction};
++pub use filter::{FilterEngine, FilterVerdict, RouteFilter, FilterAction, build_route_ctx};
++pub use filter_expr::{Expr, RouteCtx, parse_expr};
+diff --git a/crates/rbmp-server/Cargo.toml b/crates/rbmp-server/Cargo.toml
+index 0f0fb32..df751df 100644
+--- a/crates/rbmp-server/Cargo.toml
++++ b/crates/rbmp-server/Cargo.toml
+@@ -73,6 +73,9 @@ tokio-rustls   = { workspace = true }
+ rustls         = { workspace = true }
+ rustls-pemfile = { workspace = true }
+ 
++# Hot-reload file watcher (RV5-1)
++notify         = { workspace = true }
++
+ [dev-dependencies]
+ tokio-test  = "0.4"
+ reqwest     = { workspace = true }
+diff --git a/crates/rbmp-server/src/api/mod.rs b/crates/rbmp-server/src/api/mod.rs
+index 9c83d8e..b433ed0 100644
+--- a/crates/rbmp-server/src/api/mod.rs
++++ b/crates/rbmp-server/src/api/mod.rs
+@@ -5,6 +5,8 @@ pub mod stats;
+ pub mod health;
+ pub mod export;
+ pub mod topology;
++pub mod ml;
++pub mod onboard;
+ 
+ use std::sync::Arc;
+ use axum::{Router, routing::{get, post}, middleware};
+@@ -27,14 +29,30 @@ pub fn build_router(state: AppState) -> Router {
+         .route("/peers/{addr}",        get(peers::get_peer))
+         .route("/peers/{addr}/rib",    get(routes::get_peer_rib))
+         // Routes
+-        .route("/routes",              get(routes::list_routes))
+-        .route("/routes/prefix",       get(routes::prefix_history))
+-        .route("/routes/changes",      get(routes::route_changes))
++        .route("/routes",                                   get(routes::list_routes))
++        .route("/routes/prefix",                            get(routes::prefix_history))
++        .route("/routes/changes",                           get(routes::route_changes))
++        // Prefix Explorer (RV5-2)
++        .route("/routes/prefix/{prefix}/timeline",          get(routes::prefix_timeline))
++        .route("/routes/prefix/{prefix}/peers",             get(routes::prefix_peers))
++        .route("/routes/prefix/{prefix}/convergence",       get(routes::prefix_convergence))
+         // Analytics
+         .route("/analytics/churn",     get(stats::top_churn))
+         .route("/analytics/origins",   get(stats::as_origins))
+-        // RPKI
++        // RPKI (RV5-4)
+         .route("/rpki/stats",          get(stats::rpki_stats))
++        .route("/rpki/analysis",       get(routes::rpki_analysis))
++        // Policy analysis (RV5-5)
++        .route("/policy",              get(routes::policy_delta))
++        // Peer timeline (RV5-6)
++        .route("/peers/{addr}/timeline", get(peers::peer_timeline))
++        // ML anomalies (RV5-9)
++        .route("/ml/anomalies",           get(ml::list_anomalies))
++        // Speaker onboarding (RV5-7)
++        .route("/onboard/{addr}/validate", get(onboard::validate_speaker))
++        .route("/onboard/{addr}/register", post(onboard::register_speaker))
++        .route("/onboard/{addr}/filter",   post(onboard::apply_filter))
++        .route("/onboard/{addr}/confirm",  get(onboard::confirm_speaker))
+         // BGP-LS topology graph (RV4-6)
+         .route("/bgpls/graph",         get(topology::bgpls_graph))
+         // Parquet export (RV4-2)
+diff --git a/crates/rbmp-server/src/api/peers.rs b/crates/rbmp-server/src/api/peers.rs
+index af5b1a4..28dee83 100644
+--- a/crates/rbmp-server/src/api/peers.rs
++++ b/crates/rbmp-server/src/api/peers.rs
+@@ -1,4 +1,5 @@
+-use axum::{extract::{Path, State}, Json, http::StatusCode};
++use axum::{extract::{Path, Query, State}, Json, http::StatusCode};
++use serde::Deserialize;
+ use serde_json::{json, Value};
+ use crate::state::AppState;
+ 
+@@ -9,9 +10,9 @@ pub async fn list_speakers(State(state): State<AppState>) -> Json<Value> {
+         let meta     = state.registry.lookup(&addr_str);
+         json!({
+             "addr":         addr_str,
+-            "hostname":     meta.map(|m| m.hostname.as_str()).unwrap_or(""),
+-            "vendor":       meta.map(|m| m.vendor.as_str()).unwrap_or(""),
+-            "site":         meta.map(|m| m.site.as_str()).unwrap_or(""),
++            "hostname":     meta.as_ref().map(|m| m.hostname.as_str()).unwrap_or(""),
++            "vendor":       meta.as_ref().map(|m| m.vendor.as_str()).unwrap_or(""),
++            "site":         meta.as_ref().map(|m| m.site.as_str()).unwrap_or(""),
+             "sys_name":     s.sys_name,
+             "sys_descr":    s.sys_descr,
+             "connected_at": s.connected_at.to_rfc3339(),
+@@ -35,9 +36,9 @@ pub async fn get_speaker(
+             let meta     = state.registry.lookup(&addr_str);
+             Ok(Json(json!({
+             "addr":         addr_str,
+-            "hostname":     meta.map(|m| m.hostname.as_str()).unwrap_or(""),
+-            "vendor":       meta.map(|m| m.vendor.as_str()).unwrap_or(""),
+-            "site":         meta.map(|m| m.site.as_str()).unwrap_or(""),
++            "hostname":     meta.as_ref().map(|m| m.hostname.as_str()).unwrap_or(""),
++            "vendor":       meta.as_ref().map(|m| m.vendor.as_str()).unwrap_or(""),
++            "site":         meta.as_ref().map(|m| m.site.as_str()).unwrap_or(""),
+             "sys_name":     s.sys_name,
+             "sys_descr":    s.sys_descr,
+             "connected_at": s.connected_at.to_rfc3339(),
+@@ -100,3 +101,22 @@ pub async fn get_peer(
+     }
+     Err(StatusCode::NOT_FOUND)
+ }
++
++#[derive(Debug, Deserialize)]
++pub struct TimelineQuery {
++    #[serde(default = "default_days")]
++    pub days: u32,
++}
++fn default_days() -> u32 { 7 }
++
++/// GET /api/peers/{addr}/timeline?days=7
++pub async fn peer_timeline(
++    Path(addr):   Path<String>,
++    Query(q):     Query<TimelineQuery>,
++    State(state): State<AppState>,
++) -> Result<Json<Value>, StatusCode> {
++    let timeline = state.queries
++        .peer_session_timeline(&addr, q.days)
++        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
++    Ok(Json(json!({ "peer_addr": addr, "days": q.days, "timeline": timeline })))
++}
+diff --git a/crates/rbmp-server/src/api/routes.rs b/crates/rbmp-server/src/api/routes.rs
+index 1fcdfb9..2d021ab 100644
+--- a/crates/rbmp-server/src/api/routes.rs
++++ b/crates/rbmp-server/src/api/routes.rs
+@@ -88,3 +88,84 @@ pub async fn route_changes(
+         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+     Ok(Json(json!({ "changes": changes, "count": changes.len() })))
+ }
++
++// ─── Prefix Explorer endpoints (RV5-2) ────────────────────────────────────────
++
++#[derive(Debug, Deserialize)]
++pub struct TimelineQuery {
++    #[serde(default = "default_days")]
++    pub days: u32,
++}
++
++#[derive(Debug, Deserialize)]
++pub struct ConvergenceQuery {
++    #[serde(default = "default_limit")]
++    pub limit: usize,
++}
++
++fn default_days() -> u32 { 7 }
++
++/// GET /api/routes/prefix/{prefix}/timeline?days=7
++pub async fn prefix_timeline(
++    Path(prefix):   Path<String>,
++    Query(q):       Query<TimelineQuery>,
++    State(state):   State<AppState>,
++) -> Result<Json<Value>, StatusCode> {
++    let prefix_decoded = urlencoding_decode(&prefix);
++    let timeline = state.queries
++        .prefix_timeline(&prefix_decoded, q.days)
++        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
++    Ok(Json(json!({ "prefix": prefix_decoded, "days": q.days, "timeline": timeline })))
++}
++
++/// GET /api/routes/prefix/{prefix}/peers
++pub async fn prefix_peers(
++    Path(prefix): Path<String>,
++    State(state): State<AppState>,
++) -> Result<Json<Value>, StatusCode> {
++    let prefix_decoded = urlencoding_decode(&prefix);
++    let peers = state.queries
++        .prefix_peers(&prefix_decoded)
++        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
++    Ok(Json(json!({ "prefix": prefix_decoded, "peers": peers, "count": peers.len() })))
++}
++
++/// GET /api/routes/prefix/{prefix}/convergence?limit=50
++pub async fn prefix_convergence(
++    Path(prefix): Path<String>,
++    Query(q):     Query<ConvergenceQuery>,
++    State(state): State<AppState>,
++) -> Result<Json<Value>, StatusCode> {
++    let prefix_decoded = urlencoding_decode(&prefix);
++    let events = state.queries
++        .prefix_convergence(&prefix_decoded, q.limit)
++        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
++    Ok(Json(json!({ "prefix": prefix_decoded, "events": events })))
++}
++
++/// GET /api/rpki/analysis
++pub async fn rpki_analysis(
++    State(state): State<AppState>,
++) -> Result<Json<Value>, StatusCode> {
++    let analysis = state.queries
++        .rpki_analysis()
++        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
++    Ok(Json(analysis))
++}
++
++/// GET /api/policy?peer={addr}
++pub async fn policy_delta(
++    Query(params): Query<std::collections::HashMap<String, String>>,
++    State(state):  State<AppState>,
++) -> Result<Json<Value>, StatusCode> {
++    let peer_addr = params.get("peer").map(|s| s.as_str()).unwrap_or("");
++    let delta = state.queries
++        .policy_delta(peer_addr)
++        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
++    Ok(Json(delta))
++}
++
++/// Decode percent-encoded slashes in prefix path segments (e.g. "192.0.2.0%2F24" → "192.0.2.0/24")
++fn urlencoding_decode(s: &str) -> String {
++    s.replace("%2F", "/").replace("%2f", "/")
++}
+diff --git a/crates/rbmp-server/src/config.rs b/crates/rbmp-server/src/config.rs
+index 920d2a8..afbd154 100644
+--- a/crates/rbmp-server/src/config.rs
++++ b/crates/rbmp-server/src/config.rs
+@@ -40,6 +40,10 @@ pub struct Config {
+     pub tls:      TlsConfig,
+     #[serde(default)]
+     pub ha:       HaConfig,
++    /// Path to the YAML filter file. When set, the filter hot-reload watcher
++    /// watches this file and applies it on every save.
++    /// Example: `filter_file = "config/filters.yaml"`
++    pub filter_file: Option<String>,
+ }
+ 
+ impl Config {
+@@ -150,15 +154,47 @@ pub struct SpeakerEntry {
+     pub site:     String,
+ }
+ 
+-#[derive(Debug, Clone, Deserialize, Serialize, Default)]
++#[derive(Debug, Deserialize, Serialize)]
+ pub struct SpeakerRegistry {
+     #[serde(default)]
+     pub speakers: Vec<SpeakerEntry>,
++    /// Runtime-registered speakers (via onboarding API) — not persisted to disk.
++    #[serde(skip)]
++    pub runtime:  std::sync::Mutex<Vec<SpeakerEntry>>,
++}
++
++impl Default for SpeakerRegistry {
++    fn default() -> Self {
++        Self { speakers: Vec::new(), runtime: std::sync::Mutex::new(Vec::new()) }
++    }
++}
++
++impl Clone for SpeakerRegistry {
++    fn clone(&self) -> Self {
++        let rt = self.runtime.lock().unwrap().clone();
++        Self { speakers: self.speakers.clone(), runtime: std::sync::Mutex::new(rt) }
++    }
+ }
+ 
+ impl SpeakerRegistry {
+-    pub fn lookup(&self, addr: &str) -> Option<&SpeakerEntry> {
+-        self.speakers.iter().find(|e| e.addr == addr)
++    pub fn lookup(&self, addr: &str) -> Option<SpeakerEntry> {
++        // Check runtime registrations first (override static config)
++        if let Ok(rt) = self.runtime.lock() {
++            if let Some(e) = rt.iter().find(|e| e.addr == addr) {
++                return Some(e.clone());
++            }
++        }
++        self.speakers.iter().find(|e| e.addr == addr).cloned()
++    }
++
++    /// Upsert a speaker entry at runtime (onboarding API).
++    pub fn upsert(&self, entry: SpeakerEntry) {
++        let mut rt = self.runtime.lock().unwrap();
++        if let Some(existing) = rt.iter_mut().find(|e| e.addr == entry.addr) {
++            *existing = entry;
++        } else {
++            rt.push(entry);
++        }
+     }
+ }
+ 
+diff --git a/crates/rbmp-server/src/main.rs b/crates/rbmp-server/src/main.rs
+index f017cda..8bfe3c8 100644
+--- a/crates/rbmp-server/src/main.rs
++++ b/crates/rbmp-server/src/main.rs
+@@ -10,6 +10,7 @@ pub mod auth;
+ pub mod retention;
+ pub mod ha;
+ pub mod tls;
++pub mod filter_watcher;
+ 
+ use std::sync::Arc;
+ use std::path::Path;
+@@ -74,6 +75,12 @@ async fn main() -> Result<()> {
+     let event_tx = rib_mgr.event_sender();
+     let rib = Arc::new(RwLock::new(rib_mgr));
+ 
++    // ── Filter hot-reload watcher ──────────────────────────────────────────────
++    if let Some(ref fp) = cfg.filter_file {
++        let filter_path = std::path::PathBuf::from(fp);
++        filter_watcher::spawn_filter_watcher(filter_path, Arc::clone(&rib));
++    }
++
+     // ── Archive writer ────────────────────────────────────────────────────────
+     let archive = Arc::new(
+         archive::BmpArchive::open(cfg.bmp.archive_path.as_deref()).await?
+diff --git a/crates/rbmp-store/src/query.rs b/crates/rbmp-store/src/query.rs
+index f04a8db..2db263f 100644
+--- a/crates/rbmp-store/src/query.rs
++++ b/crates/rbmp-store/src/query.rs
+@@ -2,6 +2,7 @@ use std::sync::{Arc, Mutex};
+ use duckdb::Row;
+ use anyhow::Result;
+ use serde::{Deserialize, Serialize};
++use serde_json::Value;
+ use crate::duck::RouteStore;
+ 
+ /// A flattened route row returned by queries
+@@ -139,6 +140,216 @@ impl QueryEngine {
+         Ok(rows)
+     }
+ 
++    /// Prefix timeline — announce/withdraw events bucketed by hour for the last N days
++    pub fn prefix_timeline(&self, prefix: &str, days: u32) -> Result<Vec<serde_json::Value>> {
++        let locked = self.store.lock().unwrap();
++        let conn = locked.conn();
++        let sql = format!(
++            r#"SELECT
++                time_bucket(INTERVAL '1 hour', occurred_at) AS bucket,
++                action,
++                COUNT(*) AS event_count
++               FROM route_events
++               WHERE prefix = '{prefix}'
++                 AND occurred_at >= NOW() - INTERVAL '{days} days'
++               GROUP BY bucket, action
++               ORDER BY bucket"#
++        );
++        let mut stmt = conn.prepare(&sql)?;
++        let rows = stmt.query_map([], |row| {
++            let bucket: String    = row.get(0)?;
++            let action: String    = row.get(1)?;
++            let count:  u64       = row.get(2)?;
++            Ok(serde_json::json!({ "bucket": bucket, "action": action, "count": count }))
++        })?.filter_map(|r| r.ok()).collect();
++        Ok(rows)
++    }
++
++    /// Which peers currently see a prefix and their most recent AS_PATH
++    pub fn prefix_peers(&self, prefix: &str) -> Result<Vec<serde_json::Value>> {
++        let locked = self.store.lock().unwrap();
++        let conn = locked.conn();
++        let sql = format!(
++            r#"SELECT peer_addr, peer_as, as_path, next_hop, local_pref, communities,
++                      occurred_at
++               FROM (
++                 SELECT *, ROW_NUMBER() OVER (PARTITION BY peer_addr ORDER BY occurred_at DESC) AS rn
++                 FROM route_events
++                 WHERE prefix = '{prefix}' AND action = 'announce'
++               ) t WHERE rn = 1
++               ORDER BY peer_addr"#
++        );
++        let mut stmt = conn.prepare(&sql)?;
++        let rows = stmt.query_map([], |row| {
++            let peer_addr:  String         = row.get(0)?;
++            let peer_as:    u32            = row.get(1)?;
++            let as_path:    Option<String> = row.get(2)?;
++            let next_hop:   Option<String> = row.get(3)?;
++            let local_pref: Option<u32>    = row.get(4)?;
++            let communities: Option<String> = row.get(5)?;
++            let occurred_at: String        = row.get(6)?;
++            Ok(serde_json::json!({
++                "peer_addr": peer_addr, "peer_as": peer_as,
++                "as_path": as_path, "next_hop": next_hop,
++                "local_pref": local_pref, "communities": communities,
++                "last_seen": occurred_at
++            }))
++        })?.filter_map(|r| r.ok()).collect();
++        Ok(rows)
++    }
++
++    /// Convergence times for the last N events on a prefix
++    /// Returns the gap in seconds between sequential announce events per peer
++    pub fn prefix_convergence(&self, prefix: &str, limit: usize) -> Result<Vec<serde_json::Value>> {
++        let locked = self.store.lock().unwrap();
++        let conn = locked.conn();
++        let sql = format!(
++            r#"SELECT
++                peer_addr,
++                occurred_at,
++                action,
++                epoch(occurred_at) - lag(epoch(occurred_at)) OVER (PARTITION BY peer_addr ORDER BY occurred_at) AS gap_secs
++               FROM route_events
++               WHERE prefix = '{prefix}'
++               ORDER BY occurred_at DESC
++               LIMIT {limit}"#
++        );
++        let mut stmt = conn.prepare(&sql)?;
++        let rows = stmt.query_map([], |row| {
++            let peer_addr:  String     = row.get(0)?;
++            let occurred_at: String    = row.get(1)?;
++            let action:     String     = row.get(2)?;
++            let gap_secs:   Option<f64> = row.get(3)?;
++            Ok(serde_json::json!({
++                "peer_addr": peer_addr,
++                "occurred_at": occurred_at,
++                "action": action,
++                "gap_secs": gap_secs
++            }))
++        })?.filter_map(|r| r.ok()).collect();
++        Ok(rows)
++    }
++
++    /// Peer session timeline — up/down events in last N days with duration
++    pub fn peer_session_timeline(&self, peer_addr: &str, days: u32) -> Result<Vec<serde_json::Value>> {
++        let locked = self.store.lock().unwrap();
++        let conn = locked.conn();
++        let sql = format!(
++            r#"SELECT occurred_at, event_type, reason,
++                      epoch(lead(occurred_at) OVER (ORDER BY occurred_at)) - epoch(occurred_at) AS duration_secs
++               FROM peer_events
++               WHERE peer_addr = '{peer_addr}'
++                 AND occurred_at >= NOW() - INTERVAL '{days} days'
++               ORDER BY occurred_at DESC"#
++        );
++        let mut stmt = conn.prepare(&sql)?;
++        let rows = stmt.query_map([], |row| {
++            let occurred_at:   String     = row.get(0)?;
++            let event_type:    String     = row.get(1)?;
++            let reason:        Option<String> = row.get(2)?;
++            let duration_secs: Option<f64>   = row.get(3)?;
++            Ok(serde_json::json!({
++                "occurred_at": occurred_at,
++                "event_type": event_type,
++                "reason": reason,
++                "duration_secs": duration_secs
++            }))
++        })?.filter_map(|r| r.ok()).collect();
++        Ok(rows)
++    }
++
++    /// RPKI analysis — breakdown by validity + per-peer invalid rates
++    pub fn rpki_analysis(&self) -> Result<serde_json::Value> {
++        let locked = self.store.lock().unwrap();
++        let conn = locked.conn();
++
++        // Overall breakdown
++        let breakdown_sql = r#"SELECT rpki_validity, COUNT(DISTINCT prefix) AS cnt
++            FROM (
++              SELECT prefix, rpki_validity,
++                     ROW_NUMBER() OVER (PARTITION BY prefix ORDER BY occurred_at DESC) AS rn
++              FROM route_events WHERE action = 'announce'
++            ) t WHERE rn = 1
++            GROUP BY rpki_validity ORDER BY cnt DESC"#;
++        let mut stmt = conn.prepare(breakdown_sql)?;
++        let breakdown: Vec<serde_json::Value> = stmt.query_map([], |row| {
++            let validity: Option<String> = row.get(0)?;
++            let cnt: u64 = row.get(1)?;
++            Ok(serde_json::json!({ "validity": validity.unwrap_or_else(|| "unknown".into()), "count": cnt }))
++        })?.filter_map(|r| r.ok()).collect();
++
++        // Per-peer invalid rate
++        let peer_sql = r#"SELECT peer_addr, peer_as,
++                SUM(CASE WHEN rpki_validity='invalid' THEN 1 ELSE 0 END)::FLOAT / COUNT(*) AS invalid_rate,
++                COUNT(*) AS total
++            FROM route_events WHERE action = 'announce'
++            GROUP BY peer_addr, peer_as ORDER BY invalid_rate DESC LIMIT 20"#;
++        let mut stmt2 = conn.prepare(peer_sql)?;
++        let per_peer: Vec<serde_json::Value> = stmt2.query_map([], |row| {
++            let peer_addr:    String = row.get(0)?;
++            let peer_as:      u32    = row.get(1)?;
++            let invalid_rate: f64    = row.get(2)?;
++            let total:        u64    = row.get(3)?;
++            Ok(serde_json::json!({ "peer_addr": peer_addr, "peer_as": peer_as, "invalid_rate": invalid_rate, "total": total }))
++        })?.filter_map(|r| r.ok()).collect();
++
++        Ok(serde_json::json!({ "breakdown": breakdown, "per_peer": per_peer }))
++    }
++
++    /// Policy analysis — pre vs post-policy diff for a peer
++    pub fn policy_delta(&self, peer_addr: &str) -> Result<serde_json::Value> {
++        let locked = self.store.lock().unwrap();
++        let conn = locked.conn();
++        let sql = format!(
++            r#"SELECT rib_type, COUNT(DISTINCT prefix) AS prefix_count
++               FROM (
++                 SELECT prefix, rib_type,
++                        ROW_NUMBER() OVER (PARTITION BY prefix, rib_type ORDER BY occurred_at DESC) AS rn
++                 FROM route_events WHERE peer_addr = '{peer_addr}' AND action = 'announce'
++               ) t WHERE rn = 1
++               GROUP BY rib_type"#
++        );
++        let mut stmt = conn.prepare(&sql)?;
++        let by_rib: Vec<serde_json::Value> = stmt.query_map([], |row| {
++            let rib_type:      String = row.get(0)?;
++            let prefix_count:  u64   = row.get(1)?;
++            Ok(serde_json::json!({ "rib_type": rib_type, "prefix_count": prefix_count }))
++        })?.filter_map(|r| r.ok()).collect();
++
++        Ok(serde_json::json!({ "peer_addr": peer_addr, "by_rib_type": by_rib }))
++    }
++
++    /// ML anomaly detections from the Python pipeline (most recent first)
++    pub fn ml_anomalies(&self, limit: usize, kind: Option<&str>) -> Result<Vec<Value>> {
++        let locked = self.store.lock().unwrap();
++        let conn   = locked.conn();
++        let kind_filter = kind.map(|k| format!("AND kind = '{k}'")).unwrap_or_default();
++        let sql = format!(
++            r#"SELECT detected_at, kind, prefix, peer_addr, score, description, severity
++               FROM ml_anomalies
++               WHERE 1=1 {kind_filter}
++               ORDER BY detected_at DESC
++               LIMIT {limit}"#
++        );
++        let mut stmt = conn.prepare(&sql)?;
++        let rows = stmt.query_map([], |row| {
++            let detected_at: String    = row.get(0)?;
++            let kind:        String    = row.get(1)?;
++            let prefix:      Option<String> = row.get(2)?;
++            let peer_addr:   Option<String> = row.get(3)?;
++            let score:       Option<f64>    = row.get(4)?;
++            let description: Option<String> = row.get(5)?;
++            let severity:    Option<String> = row.get(6)?;
++            Ok(serde_json::json!({
++                "detected_at": detected_at, "kind": kind,
++                "prefix": prefix, "peer_addr": peer_addr,
++                "score": score, "description": description,
++                "severity": severity
++            }))
++        })?.filter_map(|r| r.ok()).collect();
++        Ok(rows)
++    }
++
+     /// Peer session events (up/down history)
+     pub fn peer_history(&self, peer_addr: &str) -> Result<Vec<PeerEventRow>> {
+         let locked = self.store.lock().unwrap();
+diff --git a/crates/rbmp-store/src/schema.rs b/crates/rbmp-store/src/schema.rs
+index 10d4d0f..e63ab6b 100644
+--- a/crates/rbmp-store/src/schema.rs
++++ b/crates/rbmp-store/src/schema.rs
+@@ -87,6 +87,18 @@ CREATE TABLE IF NOT EXISTS evpn_events (
+     esi_hex         VARCHAR                -- 10-byte ESI as hex string
+ );
+ 
++-- ML anomaly detections (written by Python pipeline, read by /api/ml/anomalies)
++CREATE TABLE IF NOT EXISTS ml_anomalies (
++    id          INTEGER,
++    detected_at TIMESTAMPTZ NOT NULL,
++    kind        VARCHAR     NOT NULL,   -- 'churn_zscore' | 'origin_change' | 'path_shortening' | 'flap'
++    prefix      VARCHAR,               -- NULL for peer-level anomalies
++    peer_addr   VARCHAR,               -- NULL for prefix-level anomalies
++    score       DOUBLE,                -- anomaly score (z-score, IF score, flap count…)
++    description VARCHAR,
++    severity    VARCHAR                -- 'info' | 'warn' | 'critical'
++);
++
+ -- Indexes for common query patterns
+ CREATE INDEX IF NOT EXISTS idx_route_events_prefix     ON route_events (prefix);
+ CREATE INDEX IF NOT EXISTS idx_route_events_peer       ON route_events (peer_addr);
+diff --git a/ui/src/lib/api.ts b/ui/src/lib/api.ts
+index 1113451..e9cacc9 100644
+--- a/ui/src/lib/api.ts
++++ b/ui/src/lib/api.ts
+@@ -64,14 +64,42 @@ async function get<T>(path: string, params?: Record<string, string>): Promise<T>
+ 
+ export const api = {
+   health:    () => get<{ status: string }>('/health'),
+-  peers:     () => get<PeerSummary[]>('/api/peers'),
+-  speakers:  () => get<SpeakerSummary[]>('/api/speakers'),
+-  routes:    (params?: Record<string, string>) => get<RouteRow[]>('/api/routes', params),
+-  churn:     () => get<[string, number][]>('/api/analytics/churn'),
+-  origins:   () => get<[number, number][]>('/api/analytics/origins'),
++  peers:     () => get<{ peers: unknown[] }>('/api/peers'),
++  speakers:  () => get<{ speakers: unknown[] }>('/api/speakers'),
++  routes:    (params?: Record<string, string>) => get<{ routes: RouteRow[] }>('/api/routes', params),
++  churn:     () => get<{ prefixes: [string, number][] }>('/api/analytics/churn'),
++  origins:   () => get<{ origins: [number, number][] }>('/api/analytics/origins'),
+   bgplsGraph: (protocol?: string) =>
+     get<TopologyGraph>('/api/bgpls/graph', protocol ? { protocol } : undefined),
+   rpkiStats: () => get<Record<string, number>>('/api/rpki/stats'),
++
++  // Prefix Explorer (RV5-2)
++  prefixTimeline: (prefix: string, days = 7) =>
++    get<{ prefix: string; timeline: { bucket: string; action: string; count: number }[] }>(
++      `/api/routes/prefix/${encodeURIComponent(prefix)}/timeline`, { days: String(days) }),
++  prefixPeers: (prefix: string) =>
++    get<{ prefix: string; peers: unknown[]; count: number }>(
++      `/api/routes/prefix/${encodeURIComponent(prefix)}/peers`),
++  prefixConvergence: (prefix: string, limit = 50) =>
++    get<{ prefix: string; events: unknown[] }>(
++      `/api/routes/prefix/${encodeURIComponent(prefix)}/convergence`, { limit: String(limit) }),
++
++  // RPKI analysis (RV5-4)
++  rpkiAnalysis: () => get<{ breakdown: unknown[]; per_peer: unknown[] }>('/api/rpki/analysis'),
++
++  // Policy delta (RV5-5)
++  policyDelta: (peer: string) =>
++    get<{ peer_addr: string; by_rib_type: unknown[] }>('/api/policy', { peer }),
++
++  // Peer session timeline (RV5-6)
++  peerTimeline: (addr: string, days = 7) =>
++    get<{ peer_addr: string; timeline: unknown[] }>(
++      `/api/peers/${encodeURIComponent(addr)}/timeline`, { days: String(days) }),
++
++  // ML anomalies (RV5-9)
++  mlAnomalies: (limit = 100, kind?: string) =>
++    get<{ anomalies: unknown[]; count: number }>(
++      '/api/ml/anomalies', { limit: String(limit), ...(kind ? { kind } : {}) }),
+ };
+ 
+ /** Open the SSE /api/events stream and call onEvent for each event. */
+diff --git a/ui/src/routes/+layout.svelte b/ui/src/routes/+layout.svelte
+index 3a23744..8802f6b 100644
+--- a/ui/src/routes/+layout.svelte
++++ b/ui/src/routes/+layout.svelte
+@@ -1,13 +1,19 @@
+ <script lang="ts">
+   import { page } from '$app/stores';
+-  import { Activity, Network, Route, Bell, BarChart3 } from 'lucide-svelte';
++  import { Activity, Network, Route, Bell, BarChart3, Shield, GitBranch, Cpu, Radio, BarChart2, Server } from 'lucide-svelte';
+ 
+   const navItems = [
+-    { href: '/',          label: 'Dashboard',  icon: Activity },
+-    { href: '/peers',     label: 'Peers',      icon: Network },
+-    { href: '/prefixes',  label: 'Prefixes',   icon: Route },
+-    { href: '/topology',  label: 'Topology',   icon: BarChart3 },
+-    { href: '/alerts',    label: 'Alerts',     icon: Bell },
++    { href: '/',          label: 'Dashboard',   icon: Activity },
++    { href: '/peers',     label: 'Peers',       icon: Network },
++    { href: '/prefixes',  label: 'Prefixes',    icon: Route },
++    { href: '/topology',  label: 'Topology',    icon: BarChart3 },
++    { href: '/alerts',    label: 'Alerts',      icon: Bell },
++    { href: '/rpki',      label: 'RPKI',        icon: Shield },
++    { href: '/policy',    label: 'Policy',      icon: GitBranch },
++    { href: '/aspath',    label: 'AS Paths',    icon: Radio },
++    { href: '/onboard',   label: 'Onboarding',  icon: Server },
++    { href: '/ml',        label: 'ML Insights', icon: Cpu },
++    { href: '/stats',     label: 'BMP Stats',   icon: BarChart2 },
+   ];
+ </script>
+ 
+@@ -16,7 +22,7 @@
+   <aside class="w-56 flex-shrink-0 bg-gray-900 border-r border-gray-800 flex flex-col">
+     <div class="px-4 py-5 border-b border-gray-800">
+       <span class="text-lg font-bold text-emerald-400 tracking-tight">RustyBMP</span>
+-      <span class="ml-2 text-xs text-gray-500">RV4</span>
++      <span class="ml-2 text-xs text-gray-500">RV5</span>
+     </div>
+     <nav class="flex-1 py-4 space-y-1 px-2">
+       {#each navItems as item}
+diff --git a/ui/src/routes/peers/+page.svelte b/ui/src/routes/peers/+page.svelte
+index c1a02f4..da8a71e 100644
+--- a/ui/src/routes/peers/+page.svelte
++++ b/ui/src/routes/peers/+page.svelte
+@@ -9,7 +9,8 @@
+ 
+   async function load() {
+     loading = true;
+-    peers = await api.peers().catch(() => []);
++    const res = await api.peers().catch(() => ({ peers: [] }));
++    peers = (res.peers ?? []) as PeerSummary[];
+     loading = false;
+   }
+ 
+@@ -63,7 +64,12 @@
+         <tbody>
+           {#each filtered as peer}
+             <tr class="border-b border-gray-800/50 hover:bg-gray-800/30 transition-colors">
+-              <td class="px-4 py-3 font-mono text-gray-200">{peer.peer_addr}</td>
++              <td class="px-4 py-3 font-mono">
++                <a href="/peers/{encodeURIComponent(peer.peer_addr)}"
++                   class="text-blue-400 hover:text-blue-300 hover:underline">
++                  {peer.peer_addr}
++                </a>
++              </td>
+               <td class="px-4 py-3 text-gray-400">AS{peer.peer_as}</td>
+               <td class="px-4 py-3 text-gray-400">{peer.rib_type}</td>
+               <td class="px-4 py-3">
+diff --git a/ui/src/routes/prefixes/+page.svelte b/ui/src/routes/prefixes/+page.svelte
+index 91e0529..6328500 100644
+--- a/ui/src/routes/prefixes/+page.svelte
++++ b/ui/src/routes/prefixes/+page.svelte
+@@ -14,7 +14,8 @@
+     loading = true;
+     const params: Record<string, string> = { limit: String(limit) };
+     if (search) params.prefix = search;
+-    routes  = await api.routes(params).catch(() => []);
++    const res = await api.routes(params).catch(() => ({ routes: [] }));
++    routes  = res.routes;
+     loading = false;
+   }
+ 
+@@ -94,7 +95,12 @@
+         <tbody>
+           {#each filtered as r}
+             <tr class="border-b border-gray-800/50 hover:bg-gray-800/30 transition-colors">
+-              <td class="px-4 py-2.5 font-mono text-emerald-300 text-xs">{r.prefix}</td>
++              <td class="px-4 py-2.5 font-mono text-xs">
++                <a
++                  href="/prefix/{encodeURIComponent(r.prefix)}"
++                  class="text-emerald-300 hover:text-emerald-200 hover:underline"
++                >{r.prefix}</a>
++              </td>
+               <td class="px-4 py-2.5 font-mono text-gray-400 text-xs">{r.peer_addr}</td>
+               <td class="px-4 py-2.5">
+                 <span class="px-1.5 py-0.5 rounded text-xs font-medium

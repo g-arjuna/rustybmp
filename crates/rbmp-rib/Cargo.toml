@@ -21,3 +21,5 @@ indexmap    = { workspace = true }
 ipnet       = { workspace = true }
 tokio       = { workspace = true }
 metrics     = { workspace = true }
+pest        = { workspace = true }
+pest_derive = { workspace = true }

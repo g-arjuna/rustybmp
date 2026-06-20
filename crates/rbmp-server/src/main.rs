@@ -10,6 +10,7 @@ pub mod auth;
 pub mod retention;
 pub mod ha;
 pub mod tls;
+pub mod filter_watcher;
 
 use std::sync::Arc;
 use std::path::Path;
@@ -73,6 +74,12 @@ async fn main() -> Result<()> {
     // Capture the real Sender BEFORE moving rib_mgr into Arc<RwLock>
     let event_tx = rib_mgr.event_sender();
     let rib = Arc::new(RwLock::new(rib_mgr));
+
+    // ── Filter hot-reload watcher ──────────────────────────────────────────────
+    if let Some(ref fp) = cfg.filter_file {
+        let filter_path = std::path::PathBuf::from(fp);
+        filter_watcher::spawn_filter_watcher(filter_path, Arc::clone(&rib));
+    }
 
     // ── Archive writer ────────────────────────────────────────────────────────
     let archive = Arc::new(

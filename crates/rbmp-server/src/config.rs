@@ -40,6 +40,10 @@ pub struct Config {
     pub tls:      TlsConfig,
     #[serde(default)]
     pub ha:       HaConfig,
+    /// Path to the YAML filter file. When set, the filter hot-reload watcher
+    /// watches this file and applies it on every save.
+    /// Example: `filter_file = "config/filters.yaml"`
+    pub filter_file: Option<String>,
 }
 
 impl Config {
@@ -150,15 +154,47 @@ pub struct SpeakerEntry {
     pub site:     String,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct SpeakerRegistry {
     #[serde(default)]
     pub speakers: Vec<SpeakerEntry>,
+    /// Runtime-registered speakers (via onboarding API) — not persisted to disk.
+    #[serde(skip)]
+    pub runtime:  std::sync::Mutex<Vec<SpeakerEntry>>,
+}
+
+impl Default for SpeakerRegistry {
+    fn default() -> Self {
+        Self { speakers: Vec::new(), runtime: std::sync::Mutex::new(Vec::new()) }
+    }
+}
+
+impl Clone for SpeakerRegistry {
+    fn clone(&self) -> Self {
+        let rt = self.runtime.lock().unwrap().clone();
+        Self { speakers: self.speakers.clone(), runtime: std::sync::Mutex::new(rt) }
+    }
 }
 
 impl SpeakerRegistry {
-    pub fn lookup(&self, addr: &str) -> Option<&SpeakerEntry> {
-        self.speakers.iter().find(|e| e.addr == addr)
+    pub fn lookup(&self, addr: &str) -> Option<SpeakerEntry> {
+        // Check runtime registrations first (override static config)
+        if let Ok(rt) = self.runtime.lock() {
+            if let Some(e) = rt.iter().find(|e| e.addr == addr) {
+                return Some(e.clone());
+            }
+        }
+        self.speakers.iter().find(|e| e.addr == addr).cloned()
+    }
+
+    /// Upsert a speaker entry at runtime (onboarding API).
+    pub fn upsert(&self, entry: SpeakerEntry) {
+        let mut rt = self.runtime.lock().unwrap();
+        if let Some(existing) = rt.iter_mut().find(|e| e.addr == entry.addr) {
+            *existing = entry;
+        } else {
+            rt.push(entry);
+        }
     }
 }
 
