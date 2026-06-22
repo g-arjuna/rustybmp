@@ -77,7 +77,7 @@
   }
 </script>
 
-<div class="p-6 max-w-full space-y-5">
+<div data-testid="page-path-status" class="p-6 max-w-full space-y-5">
   <div>
     <h1 class="text-2xl font-bold text-white">Path Status Matrix</h1>
     <p class="text-gray-400 text-sm mt-1">
@@ -87,7 +87,7 @@
 
   <!-- Controls -->
   <div class="flex flex-wrap gap-3 items-center">
-    <select bind:value={afi} on:change={load}
+    <select data-testid="path-status-afi-filter" bind:value={afi} on:change={load}
       class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white">
       <option value="ipv4">IPv4</option>
       <option value="ipv6">IPv6</option>
@@ -104,10 +104,10 @@
       </select>
     </label>
 
-    <input bind:value={search} placeholder="Filter prefix…"
+    <input data-testid="path-status-search" bind:value={search} placeholder="Filter prefix…"
       class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white w-48" />
 
-    <button on:click={load}
+    <button data-testid="path-status-refresh" on:click={load}
       class="bg-blue-700 hover:bg-blue-600 text-white text-sm px-4 py-1.5 rounded-lg">
       Refresh
     </button>
@@ -131,7 +131,7 @@
   {:else}
     <!-- Redundancy matrix table -->
     <div class="overflow-x-auto rounded-xl border border-gray-700">
-      <table class="w-full text-xs">
+      <table data-testid="path-status-table" class="w-full text-xs">
         <thead>
           <tr class="bg-gray-800/80 text-gray-400 text-left">
             <th class="px-3 py-2 font-medium sticky left-0 bg-gray-800 z-10 w-44">Prefix</th>

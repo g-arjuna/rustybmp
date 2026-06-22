@@ -68,7 +68,7 @@
   <title>{prefix} — Prefix Explorer — RustyBMP</title>
 </svelte:head>
 
-<div class="p-6 space-y-6">
+<div data-testid="page-prefix-detail" class="p-6 space-y-6">
   <!-- Header -->
   <div class="flex items-center justify-between">
     <div>
@@ -81,6 +81,7 @@
     </div>
     <div class="flex items-center gap-3">
       <select
+        data-testid="prefix-detail-days"
         bind:value={days}
         on:change={load}
         class="bg-gray-800 border border-gray-700 text-gray-300 text-sm rounded px-3 py-1.5"
@@ -91,6 +92,7 @@
         <option value={30}>Last 30d</option>
       </select>
       <button
+        data-testid="prefix-detail-refresh"
         on:click={load}
         class="flex items-center gap-1.5 px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 text-sm rounded border border-gray-700"
       >

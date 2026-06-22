@@ -374,4 +374,90 @@ mod tests {
         let expr = parse_expr("local_pref > 100").unwrap();
         assert!(expr.eval(&ctx()));
     }
+
+    #[test]
+    fn test_med_lt() {
+        let expr = parse_expr("med < 100").unwrap();
+        assert!(expr.eval(&ctx()), "med=50 < 100 must be true");
+    }
+
+    #[test]
+    fn test_med_gt_false() {
+        let expr = parse_expr("med > 100").unwrap();
+        assert!(!expr.eval(&ctx()), "med=50 > 100 must be false");
+    }
+
+    #[test]
+    fn test_local_pref_lt_false() {
+        let expr = parse_expr("local_pref < 100").unwrap();
+        assert!(!expr.eval(&ctx()), "local_pref=150 < 100 must be false");
+    }
+
+    #[test]
+    fn test_local_pref_eq() {
+        let expr = parse_expr("local_pref == 150").unwrap();
+        assert!(expr.eval(&ctx()), "local_pref=150 == 150 must be true");
+    }
+
+    #[test]
+    fn test_as_path_len_gt() {
+        let expr = parse_expr("as_path_len > 3").unwrap();
+        assert!(expr.eval(&ctx()), "as_path_len=4 > 3 must be true");
+    }
+
+    #[test]
+    fn test_as_path_len_le() {
+        let expr = parse_expr("as_path_len <= 4").unwrap();
+        assert!(expr.eval(&ctx()), "as_path_len=4 <= 4 must be true");
+    }
+
+    #[test]
+    fn test_origin_as_not_in() {
+        let expr = parse_expr("origin_as NOT IN [1, 2, 3]").unwrap();
+        assert!(expr.eval(&ctx()), "origin_asn=64496 NOT IN [1,2,3] must be true");
+    }
+
+    #[test]
+    fn test_peer_as_not_in() {
+        let expr = parse_expr("peer_as NOT IN [65000, 65002]").unwrap();
+        assert!(expr.eval(&ctx()), "peer_as=65001 NOT IN [65000,65002] must be true");
+    }
+
+    #[test]
+    fn test_community_missing() {
+        let expr = parse_expr("community == '65000:200'").unwrap();
+        assert!(!expr.eval(&ctx()), "community 65000:200 is absent in ctx");
+    }
+
+    #[test]
+    fn test_action_withdraw() {
+        let expr = parse_expr("action == 'withdraw'").unwrap();
+        assert!(!expr.eval(&ctx()), "action=announce != withdraw");
+
+        let mut ctx2 = ctx();
+        ctx2.action = "withdraw".to_string();
+        assert!(expr.eval(&ctx2));
+    }
+
+    #[test]
+    fn test_nested_and_or() {
+        // (prefix_len > 20 AND rpki == 'invalid') OR peer_as IN [65002]
+        let expr = parse_expr("(prefix_len > 20 AND rpki == 'invalid') OR peer_as IN [65002]").unwrap();
+        assert!(expr.eval(&ctx()), "prefix_len=24>20 AND rpki=invalid → true, so whole OR is true");
+    }
+
+    #[test]
+    fn test_parse_error_bad_syntax() {
+        let result = parse_expr("AND AND AND");
+        assert!(result.is_err(), "invalid syntax must return Err");
+    }
+
+    #[test]
+    fn test_prefix_len_ge_boundary() {
+        let expr = parse_expr("prefix_len >= 24").unwrap();
+        assert!(expr.eval(&ctx()), "prefix_len=24 >= 24 boundary must be true");
+
+        let expr2 = parse_expr("prefix_len >= 25").unwrap();
+        assert!(!expr2.eval(&ctx()), "prefix_len=24 >= 25 must be false");
+    }
 }

@@ -66,13 +66,14 @@
   };
 </script>
 
-<div class="p-6 max-w-5xl mx-auto space-y-6">
+<div data-testid="page-filters" class="p-6 max-w-5xl mx-auto space-y-6">
   <div class="flex items-center justify-between">
     <div>
       <h1 class="text-2xl font-bold text-white">Filter Management</h1>
       <p class="text-gray-400 text-sm mt-1">Test, inspect and hot-reload the BGP route filter chain</p>
     </div>
     <button
+      data-testid="filters-reload-btn"
       on:click={doReload}
       disabled={reloading}
       class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-lg text-sm font-medium transition-colors"
@@ -123,11 +124,11 @@
     <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
       <div class="space-y-1">
         <label class="text-xs text-gray-400">Prefix</label>
-        <input bind:value={testPrefix} class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm text-white font-mono" placeholder="10.0.0.0/8" />
+        <input data-testid="filter-test-prefix" bind:value={testPrefix} class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm text-white font-mono" placeholder="10.0.0.0/8" />
       </div>
       <div class="space-y-1">
         <label class="text-xs text-gray-400">Peer AS</label>
-        <input bind:value={testPeerAs} type="number" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm text-white font-mono" />
+        <input data-testid="filter-test-peer-as" bind:value={testPeerAs} type="number" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm text-white font-mono" />
       </div>
       <div class="space-y-1">
         <label class="text-xs text-gray-400">AS Path</label>
@@ -144,6 +145,7 @@
       </div>
     </div>
     <button
+      data-testid="filter-test-run-btn"
       on:click={runTest}
       disabled={testing}
       class="px-5 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white rounded-lg text-sm font-medium transition-colors"

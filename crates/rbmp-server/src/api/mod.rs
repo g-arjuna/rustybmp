@@ -16,6 +16,7 @@ pub mod capacity;
 pub mod governance;
 pub mod schema;
 pub mod external;
+pub mod seed;
 
 use std::sync::Arc;
 use axum::{Router, routing::{get, post, any}, middleware};
@@ -107,6 +108,8 @@ pub fn build_router(state: AppState) -> Router {
         .route("/governance",          get(governance::get_governance))
         // External API integrations (RV8-EXT5)
         .route("/external/prefix-visibility", get(external::prefix_visibility))
+        // Test seed endpoint (Bundle A4) — only active when RUSTYBMP_TEST_MODE=1
+        .route("/_test/seed",          post(seed::seed_handler))
         // Parquet export (RV4-2)
         .route("/export/parquet",      get(export::export_parquet))
         // Real-time event stream (SSE)

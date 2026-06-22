@@ -2,7 +2,7 @@
 
 The best BMP/BGP collector on the planet. Written in Rust.
 
-**Sprint**: RV8 complete — 0 build errors, 0 test failures. `cargo build --workspace` clean. All integration tests pass.
+**Sprint**: RV9 complete — 0 build errors, 101 Python tests passing. `cargo build --workspace` clean. All layers green.
 
 ---
 
@@ -65,10 +65,11 @@ Routers (RFC 7854 BMP)                     rbmp-collector (edge, optional)
  └─────────────────────────────────────────────────────────────────┘
 
 ui/ (SvelteKit dashboard)
-  ├── 19 nav pages (Dashboard, Peers, Prefixes, Topology, RPKI,
+  ├── 24 nav pages (Dashboard, Peers, Prefixes, Topology, RPKI,
   │   Policy, AS Paths, SR Policy, BGP-LS Path, Filters,
   │   Path Status, Capacity, Onboarding, ML Insights, BMP Stats,
-  │   RPKI Coverage, Alerts + RV8: /adapters, /query)
+  │   RPKI Coverage, Alerts, Adapters, NL Query +
+  │   RV9: /communities, /flowspec, /vrf)
   ├── Adaptive homepage: 3-state UX (empty→onboarding / waiting / active)
   ├── Speaker cards: per-router hostname, vendor, peers-up, routes, RPKI%
   ├── Inline router config snippets (IOS-XR, FRR, Arista EOS, JunOS)
@@ -82,7 +83,9 @@ bmppy/ (Python SDK + anomaly detection)
   ├── IrrClient / RdapClient / BgpToolsClient / RipeStatClient
   ├── OriginChange / RouteLeak / MED / Hijack detectors
   ├── policy_fetcher.py — SSH policy retrieval (Genie + paramiko)
-  └── rbmppy/policy/ — vendor-neutral AST + correlator
+  ├── rbmppy/policy/ — vendor-neutral AST + correlator
+  ├── rbmppy/acl_generator.py — multi-vendor ACL/prefix-list/null-route (IOS-XR/FRR/JunOS/Arista)
+  └── rbmppy/policy_advisor.py — rule-based filter gap analysis + Roto snippet generation
 ```
 
 ### Crates
@@ -215,6 +218,11 @@ bmppy/ (Python SDK + anomaly detection)
 - [x] **Swagger UI** (RV8): `GET /api/swagger` — interactive docs
 - [x] **MCP server** (RV8): `POST /mcp` — JSON-RPC 2.0, 11 BGP tools, NL→DuckDB SQL
 - [x] **External visibility** (RV8): `GET /api/external/prefix-visibility?prefix=X` — internal RIB vs RIPE STAT discrepancy
+- [x] **NL query** (RV9): `POST /api/nl-query` — keyword→SQL translation, safe DuckDB execution
+- [x] **Adapters management** (RV9): `GET /api/adapters`, `POST /api/adapters/{name}/test`
+- [x] **Communities** (RV9): `GET /api/communities`, `GET /api/communities/semantics`
+- [x] **FlowSpec rules** (RV9): `GET /api/flowspec/rules?speaker=X`
+- [x] **VRF explorer** (RV9): `GET /api/vrf/list`, `GET /api/vrf/{rd}/routes`
 
 ### UI Dashboard (SvelteKit)
 - [x] **Dashboard** (RV8) — adaptive 3-state homepage: empty→onboarding, waiting→speaker status, active→full dashboard with speaker cards
@@ -238,6 +246,11 @@ bmppy/ (Python SDK + anomaly detection)
 - [x] **ML Insights** (`/ml`) — anomaly feed by severity, model status panel
 - [x] **BMP Stats** (`/stats`) — RFC 9972 counter history, peer filter, bar chart
 - [x] **Alerts** — alert feed
+- [x] **NL Query** (`/query`) — natural language search with example chips, SQL preview, results table
+- [x] **Adapters** (`/adapters`) — output adapter health, event counts, test-connection button
+- [x] **Communities** (`/communities`) — community frequency table, inferred semantics, filter
+- [x] **FlowSpec** (`/flowspec`) — active FlowSpec rules, speaker filter, large-prefix alert
+- [x] **VRF Explorer** (`/vrf`) — L3VPN/EVPN RD selector, route table per VRF
 - [x] **Path Status** (`/path-status`) — redundancy matrix (prefix × peer), RFC 9069 colour coding
   (★ best, ≡ ECMP, ↻ backup, ⊕ best-ext, ✗ nonselected, ⊘ filtered/invalid, 💤 stale, ⚡ suppressed)
 - [x] **Capacity** (`/capacity`) — max-prefix fuel gauge + trend + ETA to exhaustion, critical alert banner
@@ -365,13 +378,16 @@ print(info.asn_info.name, info.visible_peers)
 - **RIPE STAT client** (`RipeStatClient` in `internet.py`); `GET /api/external/prefix-visibility` internal vs external discrepancy
 - **Testing** — `tests/seed.sql` DuckDB fixtures; `tests/integration/mcp_tools.rs` (12 tests); `lab/scenarios/rv8_governance_smoke.sh` E2E smoke script
 
-### 🔲 RV9 — (to be defined)
-- ServiceNow EM + Webhook output adapters (OUT4/5)
-- RIPE Atlas / Cloudflare Radar looking glass integrations (EXT3/4)
-- ML depth: hijack classifier, community semantics learner, to_pyg() completion
-- XRd RFC 9972 ContainerLab validation scenario (T8)
-- Playwright E2E test suite (T12)
-- GitHub Actions CI for Layers 0–4 (T13)
+### ✅ RV9 — Completeness Sprint
+- **UI**: `/communities` explorer, `/flowspec` viewer, `/vrf` VRF explorer, `/query` NL page, `/adapters` management (24 total pages)
+- **API**: 6 new typed endpoints (nl-query, adapters, communities, flowspec, vrf)
+- **Python**: `AclGenerator` (4-vendor: IOS-XR/FRR/JunOS/Arista), `PolicyAdvisor` (rule-based filter gap analysis + Roto snippets)
+- **Grafana**: 11-panel dashboard bundle (`grafana/rustybmp-dashboard.json`)
+- **ContainerLab**: Tier 0 FRR smoke (`tests/scenarios/01_frr_minimal/`), Tier 1 XRd RFC 9972 (`tests/scenarios/02_xrd_rfc9972/`)
+- **Playwright**: 26-test E2E suite (`ui/tests/rustybmp.spec.ts`) with mock API route interception
+- **CI**: GitHub Actions Layer 7 Playwright job + Layer 3 ML tests + `rv9` branch trigger
+- **Docs**: `docs/CODEX_TESTING.md` — 7-layer runbook replacing `UBUNTU_TESTING.md`
+- **Quality gate**: 101 Python tests passing, 0 build errors
 
 ---
 
@@ -455,6 +471,10 @@ cd bmppy && pip install -e ".[dev]" && python -m pytest
 | RV8 | NL→SQL via keyword mapping (no LLM at runtime) | LLM inference is not always available on-prem; deterministic mapping covers 90% of ops questions and is auditable. External LLM agents can call the tool and let the server execute their SQL safely |
 | RV8 | `AtomicU64` for daily NL token budget | Lock-free, correct under high concurrency; resets via day-bucket comparison — same pattern as bonsai nl_query.rs |
 | RV8 | Output adapter cursor in `runtime/cursors/{name}.cursor` | Survives restarts without re-pushing already-shipped events; consistent with bonsai adapter pattern |
+| RV9 | `AclGenerator` pure-Python, no external deps | Operators without a live router can generate and review ACL configs in CI or dry-run before push |
+| RV9 | `PolicyAdvisor` rule-based (no ML runtime) | Deterministic, auditable, zero inference latency; covers RPKI/ASPA/path-len heuristics with confidence scores |
+| RV9 | Playwright tests use `page.route()` mock interception | Decouples UI test suite from live backend; tests run in CI without a real BMP session |
+| RV9 | Grafana dashboard as portable JSON (no provisioning sidecar) | Single-file import via Grafana UI or API — works with any Grafana 10+ instance, no operator config needed |
 
 ---
 

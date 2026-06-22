@@ -86,7 +86,7 @@
   <title>Speaker Onboarding — RustyBMP</title>
 </svelte:head>
 
-<div class="p-6 max-w-3xl mx-auto space-y-6">
+<div data-testid="page-onboard" class="p-6 max-w-3xl mx-auto space-y-6">
   <div>
     <h1 class="text-2xl font-bold text-gray-100">Speaker Onboarding</h1>
     <p class="text-gray-500 text-sm mt-1">4-step wizard to connect and configure a new BMP speaker.</p>
@@ -97,12 +97,14 @@
     <label class="block text-sm text-gray-400">BMP Speaker IP Address</label>
     <div class="flex gap-2">
       <input
+        data-testid="onboard-addr-input"
         bind:value={addr}
         placeholder="192.0.2.1"
         class="flex-1 bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm text-gray-200
                placeholder-gray-600 focus:outline-none focus:border-emerald-500 font-mono"
       />
       <button
+        data-testid="onboard-start-btn"
         disabled={!addr}
         on:click={() => doStep(1)}
         class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white text-sm rounded font-medium"

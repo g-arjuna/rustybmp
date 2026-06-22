@@ -9,6 +9,8 @@
 /// consume `RibEvent`s from the shared broadcast channel.
 pub mod elasticsearch;
 pub mod splunk;
+pub mod servicenow_em;
+pub mod webhook;
 
 use std::sync::Arc;
 use async_trait::async_trait;
@@ -41,6 +43,10 @@ pub struct OutputAdaptersConfig {
     pub elasticsearch: Option<elasticsearch::ElasticsearchConfig>,
     #[serde(default)]
     pub splunk: Option<splunk::SplunkConfig>,
+    #[serde(default)]
+    pub servicenow_em: Option<servicenow_em::ServiceNowEmConfig>,
+    #[serde(default)]
+    pub webhook: Option<webhook::WebhookConfig>,
 }
 
 // ── Cursor pump ───────────────────────────────────────────────────────────────
@@ -86,4 +92,49 @@ pub fn spawn_adapter_pump(
             }
         }
     });
+}
+
+// ── Unit tests ────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct NoopAdapter;
+
+    #[async_trait]
+    impl OutputAdapter for NoopAdapter {
+        fn name(&self) -> &str { "noop" }
+        async fn send_batch(&self, _events: &[RibEvent]) -> Result<()> { Ok(()) }
+    }
+
+    #[test]
+    fn batch_size_is_256() {
+        assert_eq!(BATCH_SIZE, 256, "BATCH_SIZE must be 256 per RV8-OUT1 spec");
+    }
+
+    #[test]
+    fn noop_adapter_name() {
+        let a = NoopAdapter;
+        assert_eq!(a.name(), "noop", "adapter name() must return the configured name");
+    }
+
+    #[tokio::test]
+    async fn noop_adapter_is_healthy() {
+        let a = NoopAdapter;
+        assert!(a.is_healthy().await, "default is_healthy() must return true");
+    }
+
+    #[tokio::test]
+    async fn noop_adapter_send_batch_empty_ok() {
+        let a = NoopAdapter;
+        let result = a.send_batch(&[]).await;
+        assert!(result.is_ok(), "send_batch with empty slice must succeed");
+    }
+
+    #[test]
+    fn arc_adapter_object_safe() {
+        let a: Arc<dyn OutputAdapter> = Arc::new(NoopAdapter);
+        assert_eq!(a.name(), "noop", "OutputAdapter must be object-safe (Arc<dyn OutputAdapter> works)");
+    }
 }

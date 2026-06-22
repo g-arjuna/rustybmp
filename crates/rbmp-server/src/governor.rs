@@ -212,3 +212,134 @@ impl ResourceGovernor {
         });
     }
 }
+
+// ── Unit tests ────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_governor(rate_budget_eps: u64) -> ResourceGovernor {
+        ResourceGovernor::new(GovernorConfig {
+            memory_budget_mb: 4096,
+            rate_budget_eps,
+            sheddable_types: vec![],
+        })
+    }
+
+    #[test]
+    fn initial_state_no_pressure() {
+        let g = make_governor(500_000);
+        assert!(!g.should_shed(),       "new governor should not shed");
+        assert!(!g.memory_pressure(),   "new governor has no memory pressure");
+        let snap = g.snapshot("default");
+        assert!(!snap.memory_pressure_active);
+        assert!(!snap.write_pressure_active);
+        assert!(!snap.rate_shedding_active);
+    }
+
+    #[test]
+    fn record_event_increments_counter() {
+        let g = make_governor(500_000);
+        for _ in 0..10 {
+            g.record_event();
+        }
+        assert_eq!(
+            g.inbound_event_counter.load(Ordering::Relaxed),
+            10,
+            "inbound_event_counter should be 10 after 10 record_event() calls"
+        );
+    }
+
+    #[test]
+    fn snapshot_reflects_cfg() {
+        let g = make_governor(12345);
+        let snap = g.snapshot("internet");
+        assert_eq!(snap.profile, "internet");
+        assert_eq!(snap.memory_budget_mb, 4096);
+        assert_eq!(snap.rate_budget_eps, 12345);
+        assert_eq!(snap.memory_shrink_count, 0);
+        assert_eq!(snap.write_batch_expand_count, 0);
+        assert_eq!(snap.rate_shed_count, 0);
+    }
+
+    #[test]
+    fn manual_rate_shedding_flag() {
+        let g = make_governor(500_000);
+        assert!(!g.should_shed());
+        g.rate_shedding_active.store(true, Ordering::Relaxed);
+        assert!(g.should_shed(), "should_shed() must reflect the atomic flag");
+        g.rate_shedding_active.store(false, Ordering::Relaxed);
+        assert!(!g.should_shed());
+    }
+
+    #[test]
+    fn manual_memory_pressure_flag() {
+        let g = make_governor(500_000);
+        assert!(!g.memory_pressure());
+        g.memory_pressure_active.store(true, Ordering::Relaxed);
+        assert!(g.memory_pressure());
+        g.memory_pressure_active.store(false, Ordering::Relaxed);
+        assert!(!g.memory_pressure());
+    }
+
+    #[test]
+    fn record_many_events_counter_monotonic() {
+        let g = make_governor(500_000);
+        for i in 1..=100 {
+            g.record_event();
+            let count = g.inbound_event_counter.load(Ordering::Relaxed);
+            assert_eq!(count, i, "counter must be monotonically increasing");
+        }
+    }
+
+    #[test]
+    fn write_pressure_flag_roundtrip() {
+        let g = make_governor(500_000);
+        let snap1 = g.snapshot("default");
+        assert!(!snap1.write_pressure_active);
+        g.write_pressure_active.store(true, Ordering::Relaxed);
+        g.write_batch_expand_count.fetch_add(1, Ordering::Relaxed);
+        let snap2 = g.snapshot("default");
+        assert!(snap2.write_pressure_active);
+        assert_eq!(snap2.write_batch_expand_count, 1);
+    }
+
+    #[test]
+    fn rate_shed_count_increments_independently() {
+        let g = make_governor(500_000);
+        g.rate_shed_count.fetch_add(5, Ordering::Relaxed);
+        let snap = g.snapshot("test");
+        assert_eq!(snap.rate_shed_count, 5);
+        assert_eq!(snap.memory_shrink_count, 0);
+        assert_eq!(snap.write_batch_expand_count, 0);
+    }
+
+    #[test]
+    fn memory_shrink_count_increments_independently() {
+        let g = make_governor(500_000);
+        g.memory_shrink_count.fetch_add(3, Ordering::Relaxed);
+        let snap = g.snapshot("test");
+        assert_eq!(snap.memory_shrink_count, 3);
+        assert_eq!(snap.rate_shed_count, 0);
+    }
+
+    #[test]
+    fn different_rate_budgets_reflected_in_snapshot() {
+        let g1 = make_governor(100_000);
+        let g2 = make_governor(999_999);
+        assert_eq!(g1.snapshot("a").rate_budget_eps, 100_000);
+        assert_eq!(g2.snapshot("b").rate_budget_eps, 999_999);
+    }
+
+    #[test]
+    fn clone_shares_atomic_state() {
+        let g1 = make_governor(500_000);
+        let g2 = g1.clone();
+        g1.record_event();
+        g1.record_event();
+        // Clone shares Arc<AtomicU64> so g2 sees same counter
+        assert_eq!(g2.inbound_event_counter.load(Ordering::Relaxed), 2,
+            "cloned governor must share atomic event counter via Arc");
+    }
+}

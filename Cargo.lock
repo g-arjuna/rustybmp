@@ -3102,6 +3102,7 @@ dependencies = [
  "chrono",
  "ipnet",
  "rbmp-core",
+ "reqwest",
  "ring",
  "serde",
  "serde_json",

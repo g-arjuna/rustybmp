@@ -47,6 +47,13 @@ NODE_FEATURE_COLS = [
     "rpki_invalid_ratio",
     "session_uptime_secs",
     "flap_count_24h",
+    # RV9-D1: Path Status TLV features (RFC 9069)
+    "best_count",
+    "ecmp_count",
+    "backup_count",
+    "filtered_count",
+    "nonselected_count",
+    "redundancy_ratio",
 ]
 
 
@@ -100,6 +107,22 @@ class BgpTopologySnapshot:
                     AND TIMESTAMPTZ '{ts.isoformat()}'
                 GROUP BY peer_addr
             )
+            ,
+            path_status AS (
+                SELECT
+                    peer_addr,
+                    COUNT(*) FILTER (WHERE path_status = 'best')         AS best_count,
+                    COUNT(*) FILTER (WHERE path_status = 'ecmp')         AS ecmp_count,
+                    COUNT(*) FILTER (WHERE path_status = 'backup')       AS backup_count,
+                    COUNT(*) FILTER (WHERE path_status = 'filtered')     AS filtered_count,
+                    COUNT(*) FILTER (WHERE path_status = 'nonselected')  AS nonselected_count,
+                    COUNT(*)                                              AS ps_total
+                FROM route_events
+                WHERE action = 'announce'
+                  AND occurred_at <= TIMESTAMPTZ '{ts.isoformat()}'
+                  AND path_status IS NOT NULL
+                GROUP BY peer_addr
+            )
             SELECT
                 pb.peer_addr,
                 COALESCE(rs.route_count,    0)          AS route_count,
@@ -112,10 +135,21 @@ class BgpTopologySnapshot:
                      THEN EPOCH(TIMESTAMPTZ '{ts.isoformat()}') - EPOCH(fs.last_up)
                      ELSE 0.0
                 END                                     AS session_uptime_secs,
-                COALESCE(fs.flap_count_24h, 0)          AS flap_count_24h
+                COALESCE(fs.flap_count_24h, 0)          AS flap_count_24h,
+                COALESCE(ps.best_count, 0)              AS best_count,
+                COALESCE(ps.ecmp_count, 0)              AS ecmp_count,
+                COALESCE(ps.backup_count, 0)            AS backup_count,
+                COALESCE(ps.filtered_count, 0)           AS filtered_count,
+                COALESCE(ps.nonselected_count, 0)        AS nonselected_count,
+                CASE WHEN COALESCE(ps.ps_total, 0) > 0
+                     THEN (COALESCE(ps.ecmp_count,0) + COALESCE(ps.backup_count,0))::FLOAT
+                          / ps.ps_total
+                     ELSE 0.0
+                END                                     AS redundancy_ratio
             FROM peer_base pb
-            LEFT JOIN route_stats rs ON pb.peer_addr = rs.peer_addr
-            LEFT JOIN flap_stats  fs ON pb.peer_addr = fs.peer_addr
+            LEFT JOIN route_stats  rs ON pb.peer_addr = rs.peer_addr
+            LEFT JOIN flap_stats   fs ON pb.peer_addr = fs.peer_addr
+            LEFT JOIN path_status  ps ON pb.peer_addr = ps.peer_addr
         """).df()
 
         # Build node index

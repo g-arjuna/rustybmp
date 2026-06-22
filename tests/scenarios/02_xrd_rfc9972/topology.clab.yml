@@ -1,0 +1,44 @@
+name: xrd-rfc9972
+
+mgmt:
+  network: xrd-rfc9972-mgmt
+  ipv4-subnet: 172.20.21.0/24
+
+topology:
+  nodes:
+
+    # ── rustybmp BMP collector ───────────────────────────────────────────────
+    collector:
+      kind: linux
+      image: rustybmp:latest
+      binds:
+        - ./configs/rustybmp.toml:/etc/rustybmp/rustybmp.toml:ro
+      ports:
+        - "25000:5000"   # BMP listener
+        - "27878:7878"   # HTTP API
+      env:
+        RUST_LOG: info,rbmp_server=debug
+
+    # ── PE1 (Cisco XRd — RFC 9972 Stats enabled) ────────────────────────────
+    pe1:
+      kind: cisco_xrd
+      image: ios-xr/xrd-control-plane:24.2.1
+      startup-config: configs/pe1.cfg
+      env:
+        XR_EVERY_BOOT_CONFIG: /etc/xrd/startup.cfg
+
+    # ── PE2 (Cisco XRd) ──────────────────────────────────────────────────────
+    pe2:
+      kind: cisco_xrd
+      image: ios-xr/xrd-control-plane:24.2.1
+      startup-config: configs/pe2.cfg
+      env:
+        XR_EVERY_BOOT_CONFIG: /etc/xrd/startup.cfg
+
+  links:
+    # PE1 ↔ PE2 (iBGP backbone)
+    - endpoints: ["pe1:Gi0-0-0-0", "pe2:Gi0-0-0-0"]
+    # PE1 → collector (BMP)
+    - endpoints: ["pe1:Gi0-0-0-1", "collector:eth1"]
+    # PE2 → collector (BMP)
+    - endpoints: ["pe2:Gi0-0-0-1", "collector:eth2"]

@@ -43,7 +43,7 @@
   }[s] ?? 'bg-gray-800 text-gray-400');
 </script>
 
-<div class="p-6 space-y-5">
+<div data-testid="page-alerts" class="p-6 space-y-5">
   <div class="flex items-center justify-between">
     <div class="flex items-center gap-3">
       <h1 class="text-2xl font-bold text-gray-100">Alerts</h1>
@@ -54,6 +54,7 @@
       {/if}
     </div>
     <button
+      data-testid="alerts-clear"
       onclick={clear}
       disabled={alerts.length === 0}
       class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm
@@ -72,7 +73,7 @@
   {:else}
     <div class="space-y-2">
       {#each alerts as alert (alert.id)}
-        <div class="bg-gray-900 rounded-xl border border-gray-800 p-4 flex items-start gap-4">
+        <div data-testid="alert-entry-{alert.id}" class="bg-gray-900 rounded-xl border border-gray-800 p-4 flex items-start gap-4">
           <span class="mt-0.5 px-2 py-0.5 rounded border text-xs font-medium flex-shrink-0 {sevColor(alert.severity)}">
             {alert.severity}
           </span>

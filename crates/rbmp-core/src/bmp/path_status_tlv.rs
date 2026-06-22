@@ -229,4 +229,95 @@ mod tests {
             assert_eq!(tlv.reason_label(), expected, "code {:#06x}", code);
         }
     }
+
+    #[test]
+    fn test_stale_bit() {
+        let data: &[u8] = &[0x00, 0x00, 0x04, 0x00]; // STATUS_STALE = 0x0400
+        let tlv = parse_path_status_tlv(data).unwrap();
+        assert!(tlv.is_stale());
+        assert_eq!(tlv.label(), "stale");
+        assert!(!tlv.is_active());
+    }
+
+    #[test]
+    fn test_suppressed_bit() {
+        let data: &[u8] = &[0x00, 0x00, 0x08, 0x00]; // STATUS_SUPPRESSED = 0x0800
+        let tlv = parse_path_status_tlv(data).unwrap();
+        assert!(tlv.is_suppressed());
+        assert_eq!(tlv.label(), "suppressed");
+    }
+
+    #[test]
+    fn test_best_external_bit() {
+        let data: &[u8] = &[0x00, 0x00, 0x00, 0x40]; // STATUS_BEST_EXTERNAL = 0x0040
+        let tlv = parse_path_status_tlv(data).unwrap();
+        assert!(tlv.is_best_external());
+        assert_eq!(tlv.label(), "best-external");
+    }
+
+    #[test]
+    fn test_add_path_bit() {
+        let data: &[u8] = &[0x00, 0x00, 0x00, 0x80]; // STATUS_ADD_PATH = 0x0080
+        let tlv = parse_path_status_tlv(data).unwrap();
+        assert!(tlv.is_add_path());
+        assert_eq!(tlv.label(), "add-path");
+    }
+
+    #[test]
+    fn test_find_path_status_tlv_not_found() {
+        let stream: &[u8] = &[0x00, 0x05, 0x00, 0x02, 0xAA, 0xBB]; // only type=5, no type=6
+        let result = find_path_status_tlv(stream, PATH_STATUS_TLV_TYPE);
+        assert!(result.is_none(), "Should return None when TLV type not present in stream");
+    }
+
+    #[test]
+    fn test_find_path_status_tlv_empty_stream() {
+        let result = find_path_status_tlv(&[], PATH_STATUS_TLV_TYPE);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_all_reason_codes_non_empty() {
+        let all_codes = 0x0001u16..=0x000Bu16;
+        for code in all_codes {
+            let tlv = PathStatusTlv { status: STATUS_NONSELECTED, reason: code };
+            assert!(
+                !tlv.reason_label().is_empty(),
+                "reason_label for code {code:#06x} should not be empty"
+            );
+        }
+    }
+
+    #[test]
+    fn test_unknown_reason_is_empty_string() {
+        let tlv = PathStatusTlv { status: STATUS_NONSELECTED, reason: 0xFFFF };
+        assert_eq!(tlv.reason_label(), "", "unknown reason code should return empty string");
+    }
+
+    #[test]
+    fn test_nonselected_with_localpref_reason() {
+        let data: &[u8] = &[0x00, 0x00, 0x00, 0x04, 0x00, 0x03]; // NONSELECTED + reason=LOCAL_PREF
+        let tlv = parse_path_status_tlv(data).unwrap();
+        assert!(tlv.is_nonselected());
+        assert_eq!(tlv.reason_label(), "not preferred: LOCAL_PREF");
+        assert!(!tlv.is_active());
+    }
+
+    #[test]
+    fn test_nonselected_with_aspath_reason() {
+        let data: &[u8] = &[0x00, 0x00, 0x00, 0x04, 0x00, 0x04]; // NONSELECTED + reason=AS_PATH length
+        let tlv = parse_path_status_tlv(data).unwrap();
+        assert!(tlv.is_nonselected());
+        assert_eq!(tlv.reason_label(), "not preferred: AS_PATH length");
+    }
+
+    #[test]
+    fn test_default_tlv_is_zero() {
+        let tlv = PathStatusTlv::default();
+        assert_eq!(tlv.status, 0);
+        assert_eq!(tlv.reason, 0);
+        assert!(!tlv.is_best());
+        assert!(!tlv.is_active());
+        assert_eq!(tlv.label(), "unknown");
+    }
 }

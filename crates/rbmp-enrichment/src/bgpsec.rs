@@ -268,4 +268,49 @@ mod tests {
         let mut v = BgpsecValidator::new();
         assert!(v.load_raw_key(65001, vec![0u8; 32]).is_err());
     }
+
+    #[test]
+    fn malformed_when_no_signing_asns_but_raw_present() {
+        let v = BgpsecValidator::new();
+        let b = BgpsecPath { signing_asns: vec![], sig_block_count: 1, raw: vec![0u8; 8] };
+        assert_eq!(v.validate_path(&b, None), BgpsecVerdict::Malformed,
+            "empty signing_asns with non-empty raw must be Malformed");
+    }
+
+    #[test]
+    fn multi_hop_all_certs_required() {
+        let mut v = BgpsecValidator::new();
+        v.load_raw_key(65001, vec![0u8; 65]).unwrap();
+        // 65002 cert NOT loaded
+        let b = dummy_bgpsec(vec![65001, 65002]);
+        assert!(matches!(v.validate_path(&b, None), BgpsecVerdict::NotFound { missing_asn: 65002 }),
+            "second hop missing cert must return NotFound for AS 65002");
+    }
+
+    #[test]
+    fn cert_count_tracks_loads() {
+        let mut v = BgpsecValidator::new();
+        assert_eq!(v.cert_count(), 0);
+        v.load_raw_key(65001, vec![0u8; 65]).unwrap();
+        assert_eq!(v.cert_count(), 1);
+        v.load_raw_key(65002, vec![0u8; 65]).unwrap();
+        assert_eq!(v.cert_count(), 2);
+    }
+
+    #[test]
+    fn verdict_str_covers_all_variants() {
+        assert_eq!(BgpsecVerdict::Valid.verdict_str(), "valid");
+        assert_eq!(BgpsecVerdict::Invalid { hop: 0, reason: "bad".into() }.verdict_str(), "invalid");
+        assert_eq!(BgpsecVerdict::NotFound { missing_asn: 1 }.verdict_str(), "not_found");
+        assert_eq!(BgpsecVerdict::Malformed.verdict_str(), "malformed");
+        assert_eq!(BgpsecVerdict::Absent.verdict_str(), "absent");
+    }
+
+    #[test]
+    fn overwrite_cert_updates_key() {
+        let mut v = BgpsecValidator::new();
+        v.load_raw_key(65001, vec![0u8; 65]).unwrap();
+        v.load_raw_key(65001, vec![1u8; 65]).unwrap();
+        assert_eq!(v.cert_count(), 1, "overwriting a cert should not increase count");
+    }
 }

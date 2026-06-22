@@ -163,4 +163,92 @@ mod tests {
         assert_eq!(cache.len(), 0);
         assert_eq!(cache.validate(net("192.0.2.0/24"), 64496), RpkiState::NotFound);
     }
+
+    #[test]
+    fn test_ipv6_valid() {
+        let cache = VrpCache::new();
+        cache.reset(vec![VrpEntry { prefix: net("2001:db8::/32"), max_len: 48, origin_asn: 64496 }], 1);
+        assert_eq!(cache.validate(net("2001:db8:1::/48"), 64496), RpkiState::Valid);
+    }
+
+    #[test]
+    fn test_ipv6_invalid_wrong_origin() {
+        let cache = VrpCache::new();
+        cache.reset(vec![VrpEntry { prefix: net("2001:db8::/32"), max_len: 48, origin_asn: 64496 }], 1);
+        assert_eq!(cache.validate(net("2001:db8:1::/48"), 64497), RpkiState::Invalid);
+    }
+
+    #[test]
+    fn test_ipv6_exceeds_maxlen() {
+        let cache = VrpCache::new();
+        cache.reset(vec![VrpEntry { prefix: net("2001:db8::/32"), max_len: 40, origin_asn: 64496 }], 1);
+        assert_eq!(cache.validate(net("2001:db8:1::/48"), 64496), RpkiState::Invalid);
+    }
+
+    #[test]
+    fn test_delta_add() {
+        let cache = VrpCache::new();
+        cache.reset(vec![], 1);
+        cache.apply_delta(
+            vec![VrpEntry { prefix: net("203.0.113.0/24"), max_len: 24, origin_asn: 64497 }],
+            vec![],
+            2,
+        );
+        assert_eq!(cache.serial(), 2);
+        assert_eq!(cache.len(), 1);
+        assert_eq!(cache.validate(net("203.0.113.0/24"), 64497), RpkiState::Valid);
+    }
+
+    #[test]
+    fn test_multi_roa_best_match() {
+        let cache = VrpCache::new();
+        cache.reset(vec![
+            VrpEntry { prefix: net("10.0.0.0/8"),  max_len: 24, origin_asn: 64496 },
+            VrpEntry { prefix: net("10.1.0.0/16"), max_len: 24, origin_asn: 64497 },
+        ], 1);
+        assert_eq!(cache.validate(net("10.1.0.0/24"), 64497), RpkiState::Valid);
+        assert_eq!(cache.validate(net("10.1.0.0/24"), 64496), RpkiState::Valid);
+    }
+
+    #[test]
+    fn test_serial_initial_zero() {
+        let cache = VrpCache::new();
+        assert_eq!(cache.serial(), 0);
+    }
+
+    #[test]
+    fn test_serial_after_reset() {
+        let cache = VrpCache::new();
+        cache.reset(vec![], 42);
+        assert_eq!(cache.serial(), 42);
+    }
+
+    #[test]
+    fn test_empty_cache_not_found() {
+        let cache = VrpCache::new();
+        assert_eq!(cache.validate(net("8.8.8.0/24"), 15169), RpkiState::NotFound);
+    }
+
+    #[test]
+    fn test_is_empty_then_reset() {
+        let cache = VrpCache::new();
+        assert!(cache.is_empty());
+        cache.reset(vec![VrpEntry { prefix: net("192.0.2.0/24"), max_len: 24, origin_asn: 1 }], 1);
+        assert!(!cache.is_empty());
+    }
+
+    #[test]
+    fn test_rpki_state_display() {
+        assert_eq!(format!("{}", RpkiState::Valid),    "valid");
+        assert_eq!(format!("{}", RpkiState::Invalid),  "invalid");
+        assert_eq!(format!("{}", RpkiState::NotFound), "not-found");
+    }
+
+    #[test]
+    fn test_covering_prefix_not_covered_by_more_specific() {
+        let cache = VrpCache::new();
+        cache.reset(vec![VrpEntry { prefix: net("192.0.2.0/25"), max_len: 25, origin_asn: 64496 }], 1);
+        // /24 is LESS specific than /25 in ROA — not covered
+        assert_eq!(cache.validate(net("192.0.2.0/24"), 64496), RpkiState::NotFound);
+    }
 }

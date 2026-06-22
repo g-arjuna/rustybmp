@@ -173,4 +173,79 @@ mod tests {
         }
         assert!(allowed <= 10, "should exhaust after capacity");
     }
+
+    #[test]
+    fn token_bucket_capacity_1_allows_exactly_one_burst() {
+        let mut b = TokenBucket::new(1);
+        assert!(b.allow(),  "first call within capacity must succeed");
+        assert!(!b.allow(), "second call with empty bucket must be denied");
+    }
+
+    #[test]
+    fn token_bucket_capacity_100_allows_100_burst() {
+        let mut b = TokenBucket::new(100);
+        let mut allowed = 0usize;
+        for _ in 0..200 {
+            if b.allow() { allowed += 1; }
+        }
+        assert_eq!(allowed, 100, "exactly 100 must be allowed before exhaustion");
+    }
+
+    #[test]
+    fn token_bucket_refills_over_time() {
+        let mut b = TokenBucket::new(1000);
+        // Drain the bucket
+        for _ in 0..1000 { b.allow(); }
+        assert!(!b.allow(), "must be exhausted");
+        // Sleep 10ms → should refill ~10 tokens
+        std::thread::sleep(std::time::Duration::from_millis(15));
+        let mut refilled = 0usize;
+        for _ in 0..20 {
+            if b.allow() { refilled += 1; }
+        }
+        assert!(refilled >= 10, "after 15ms at 1000/s must have refilled at least 10 tokens; got {refilled}");
+    }
+
+    #[test]
+    fn claims_fields_round_trip() {
+        let now = 1_700_000_000i64;
+        let c = Claims { sub: "api".into(), exp: now + 86400, iat: now };
+        assert_eq!(c.sub, "api");
+        assert_eq!(c.exp - c.iat, 86400);
+    }
+
+    #[test]
+    fn jwt_encode_decode_roundtrip() {
+        use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
+        let secret = b"test-secret-32-bytes-minimum!!!";
+        let now    = Utc::now().timestamp();
+        let claims = Claims { sub: "roundtrip".into(), iat: now, exp: now + 3600 };
+
+        let token = encode(
+            &Header::default(),
+            &claims,
+            &EncodingKey::from_secret(secret),
+        ).expect("encode must succeed");
+
+        let decoded = decode::<Claims>(
+            &token,
+            &DecodingKey::from_secret(secret),
+            &Validation::new(Algorithm::HS256),
+        ).expect("decode must succeed");
+
+        assert_eq!(decoded.claims.sub, "roundtrip");
+    }
+
+    #[test]
+    fn jwt_wrong_secret_rejected() {
+        use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
+        let now    = Utc::now().timestamp();
+        let claims = Claims { sub: "x".into(), iat: now, exp: now + 3600 };
+        let token  = encode(&Header::default(), &claims,
+                            &EncodingKey::from_secret(b"secret-a-32-bytes-padding!!!!!")).unwrap();
+        let result = decode::<Claims>(&token,
+                                     &DecodingKey::from_secret(b"secret-b-32-bytes-padding!!!!!"),
+                                     &Validation::new(Algorithm::HS256));
+        assert!(result.is_err(), "token signed with different secret must be rejected");
+    }
 }

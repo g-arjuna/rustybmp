@@ -26,17 +26,19 @@
   );
 </script>
 
-<div class="p-6 space-y-5">
+<div data-testid="page-peers" class="p-6 space-y-5">
   <div class="flex items-center justify-between">
     <h1 class="text-2xl font-bold text-gray-100">Peers</h1>
     <div class="flex items-center gap-3">
       <input
+        data-testid="peers-search"
         bind:value={search}
         placeholder="Filter peers…"
         class="bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200
                placeholder-gray-600 focus:outline-none focus:border-emerald-500 w-52"
       />
       <button
+        data-testid="peers-refresh"
         onclick={load}
         class="p-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-400 hover:text-gray-100 transition-colors"
         title="Refresh"
@@ -50,7 +52,7 @@
     <p class="text-gray-500 text-sm">Loading…</p>
   {:else}
     <div class="bg-gray-900 rounded-xl border border-gray-800 overflow-hidden">
-      <table class="w-full text-sm">
+      <table data-testid="peers-table" class="w-full text-sm">
         <thead>
           <tr class="border-b border-gray-800 text-gray-500 text-xs uppercase tracking-wider">
             <th class="px-4 py-3 text-left">Peer</th>
@@ -63,7 +65,7 @@
         </thead>
         <tbody>
           {#each filtered as peer}
-            <tr class="border-b border-gray-800/50 hover:bg-gray-800/30 transition-colors">
+            <tr data-testid="peer-row-{peer.peer_addr}" class="border-b border-gray-800/50 hover:bg-gray-800/30 transition-colors">
               <td class="px-4 py-3 font-mono">
                 <a href="/peers/{encodeURIComponent(peer.peer_addr)}"
                    class="text-blue-400 hover:text-blue-300 hover:underline">

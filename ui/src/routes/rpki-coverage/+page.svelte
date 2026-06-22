@@ -24,7 +24,7 @@
   ] : [];
 </script>
 
-<div class="p-6 max-w-4xl mx-auto space-y-6">
+<div data-testid="page-rpki-coverage" class="p-6 max-w-4xl mx-auto space-y-6">
   <div>
     <h1 class="text-2xl font-bold text-white">RPKI Coverage Analysis</h1>
     <p class="text-gray-400 text-sm mt-1">What percentage of your active prefixes have ROA coverage?</p>
@@ -40,7 +40,7 @@
     <div class="text-red-400 text-sm bg-red-900/20 border border-red-800 rounded-lg p-3">{error}</div>
   {:else if coverage}
     <!-- KPI cards -->
-    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+    <div data-testid="rpki-coverage-metrics" class="grid grid-cols-2 md:grid-cols-4 gap-4">
       <MetricCard label="Total Prefixes"    value={coverage.total_prefixes.toLocaleString()} color="blue" />
       <MetricCard label="Coverage"          value={coverage.coverage_pct}   unit="%" color="green" />
       <MetricCard label="ROA Valid"         value={coverage.valid.toLocaleString()}           color="green" />

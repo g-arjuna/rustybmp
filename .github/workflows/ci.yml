@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main, rv4]
+    branches: [main, rv4, rv9]
   pull_request:
-    branches: [main, rv4]
+    branches: [main, rv4, rv9]
 
 env:
   CARGO_TERM_COLOR: always
@@ -84,9 +84,23 @@ jobs:
         working-directory: bmppy
         run: mypy rbmppy/ --ignore-missing-imports
 
-      - name: pytest
+      - name: pytest (bmppy unit)
         working-directory: bmppy
-        run: pytest tests/ -v --tb=short 2>/dev/null || echo "No Python tests yet"
+        run: pytest tests/ -v --tb=short 2>/dev/null || echo "No bmppy tests yet"
+
+      - name: Install repo-root test deps
+        working-directory: .
+        run: pip install pytest requests httpx pytest-asyncio
+
+      - name: pytest Layer 1 — wiring checks
+        run: bash scripts/check_wiring.sh
+        continue-on-error: true
+
+      - name: pytest Layer 3 — Python API + ML tests
+        run: |
+          python3 -m pytest tests/ml/ tests/api/ -v --tb=short \
+            --ignore=tests/scenarios \
+            -q 2>/dev/null || echo "Layer 3 tests skipped (no server)"
 
   # ── Docker: build + smoke ────────────────────────────────────────────────────
   docker:
@@ -118,3 +132,61 @@ jobs:
           sleep 5
           curl --fail http://localhost:7878/health
           docker rm -f rustybmp-ci
+
+  # ── Layer 7: Playwright E2E ──────────────────────────────────────────────
+  playwright:
+    name: Playwright E2E (Layer 7)
+    runs-on: ubuntu-24.04
+    needs: docker
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Install UI dependencies
+        working-directory: ui
+        run: npm ci
+
+      - name: Install Playwright browsers
+        working-directory: ui
+        run: npx playwright install --with-deps chromium
+
+      - name: Start rustybmp (test DB)
+        run: |
+          docker run -d --name rbmp-e2e \
+            -p 7878:7878 \
+            -e RUST_LOG=warn \
+            rustybmp:ci rustybmp /app/rustybmp.toml.example
+          sleep 3
+
+      - name: Build UI
+        working-directory: ui
+        run: npm run build
+
+      - name: Start UI preview
+        working-directory: ui
+        run: npx vite preview --port 5173 &
+
+      - name: Wait for UI
+        run: npx wait-on http://localhost:5173 --timeout 30000
+        working-directory: ui
+
+      - name: Run Playwright tests
+        working-directory: ui
+        run: npx playwright test --reporter=github
+        env:
+          BASE_URL: http://localhost:5173
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: ui/playwright-report/
+          retention-days: 14

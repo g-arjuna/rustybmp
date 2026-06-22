@@ -234,4 +234,88 @@ mod tests {
         // 64502 valid, 64501 unknown → overall Unknown
         assert_eq!(verdict, AspaValidity::Unknown);
     }
+
+    #[test]
+    fn test_single_hop_no_record() {
+        let table = AspaTable::new();
+        let path = parse_as_path("64500");
+        let (verdict, hop) = validate_as_path(&path, &table);
+        // No pairs → no violations and any_unknown stays false → Valid
+        assert_eq!(verdict, AspaValidity::Valid, "single AS path with no pairs has no violations → Valid");
+        assert!(hop.is_none());
+    }
+
+    #[test]
+    fn test_single_hop_with_record_no_pair() {
+        // Only one AS in path — no pairs to check, verdict should be Valid (no violations)
+        let table = table_with(&[(64500, &[64499])]);
+        let path = parse_as_path("64500");
+        let (verdict, _) = validate_as_path(&path, &table);
+        assert_eq!(verdict, AspaValidity::Valid, "single AS in path with record → Valid (no pairs to violate)");
+    }
+
+    #[test]
+    fn test_upsert_merges_providers() {
+        let mut table = AspaTable::new();
+        table.upsert(AspaRecord { customer_asn: 65001, provider_asns: vec![65000] });
+        table.upsert(AspaRecord { customer_asn: 65001, provider_asns: vec![65002] });
+        let providers = table.providers_of(65001).unwrap();
+        assert!(providers.contains(&65000));
+        assert!(providers.contains(&65002));
+        assert_eq!(table.len(), 1, "upsert should not create duplicate customer records");
+    }
+
+    #[test]
+    fn test_load_overwrites_existing() {
+        let mut table = table_with(&[(65001, &[65000])]);
+        assert_eq!(table.len(), 1);
+        // Load replaces all records
+        table.load(vec![
+            AspaRecord { customer_asn: 65002, provider_asns: vec![65001] },
+            AspaRecord { customer_asn: 65003, provider_asns: vec![65001] },
+        ]);
+        assert_eq!(table.len(), 2);
+        assert!(table.providers_of(65001).is_none(), "old record must be gone after load");
+    }
+
+    #[test]
+    fn test_is_empty_then_populated() {
+        let mut table = AspaTable::new();
+        assert!(table.is_empty());
+        table.upsert(AspaRecord { customer_asn: 1, provider_asns: vec![2] });
+        assert!(!table.is_empty());
+    }
+
+    #[test]
+    fn test_aspa_validity_display() {
+        assert_eq!(format!("{}", AspaValidity::Valid),   "valid");
+        assert_eq!(format!("{}", AspaValidity::Invalid), "invalid");
+        assert_eq!(format!("{}", AspaValidity::Unknown), "unknown");
+    }
+
+    #[test]
+    fn test_parse_as_path_empty_string() {
+        let path = parse_as_path("");
+        assert!(path.is_empty(), "empty string must produce empty path");
+    }
+
+    #[test]
+    fn test_parse_as_path_single() {
+        assert_eq!(parse_as_path("65001"), vec![65001u32]);
+    }
+
+    #[test]
+    fn test_parse_as_path_prepend_collapsed_middle() {
+        let path = parse_as_path("64500 64501 64501 64502");
+        assert_eq!(path, vec![64500, 64501, 64502]);
+    }
+
+    #[test]
+    fn test_invalid_violated_hop_is_reported() {
+        let table = table_with(&[(64502, &[64501]), (64501, &[64503])]);
+        let path = parse_as_path("64500 64501 64502");
+        let (verdict, hop) = validate_as_path(&path, &table);
+        assert_eq!(verdict, AspaValidity::Invalid);
+        assert_eq!(hop, Some((64500, 64501)), "violated hop must be (provider, customer)");
+    }
 }

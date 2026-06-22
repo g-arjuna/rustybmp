@@ -44,12 +44,12 @@
 
 <svelte:head><title>RPKI Analysis — RustyBMP</title></svelte:head>
 
-<div class="p-6 space-y-6">
+<div data-testid="page-rpki" class="p-6 space-y-6">
   <div class="flex items-center justify-between">
     <h1 class="text-2xl font-bold text-gray-100 flex items-center gap-2">
       <Shield size={22} class="text-emerald-400" /> RPKI Validation
     </h1>
-    <button on:click={load} class="flex items-center gap-1.5 px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 text-sm rounded border border-gray-700">
+    <button data-testid="rpki-refresh" on:click={load} class="flex items-center gap-1.5 px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 text-sm rounded border border-gray-700">
       <RefreshCw size={13} /> Refresh
     </button>
   </div>
@@ -62,7 +62,7 @@
     <div class="text-gray-500 text-sm animate-pulse">Loading RPKI data…</div>
   {:else if stats}
     <!-- Summary cards -->
-    <div class="grid grid-cols-3 gap-4">
+    <div data-testid="rpki-summary" class="grid grid-cols-3 gap-4">
       {#each ['valid', 'invalid', 'not_found'] as key}
         {@const val = stats[key] ?? 0}
         {@const total = Object.values(stats).reduce((s, v) => s + v, 0)}
@@ -87,7 +87,7 @@
       <div class="bg-gray-900 border border-gray-800 rounded-lg p-5">
         <h2 class="text-sm font-semibold text-gray-300 mb-4">Per-Peer RPKI Summary</h2>
         <div class="overflow-x-auto">
-          <table class="w-full text-xs text-left">
+          <table data-testid="rpki-peer-table" class="w-full text-xs text-left">
             <thead>
               <tr class="text-gray-500 border-b border-gray-800">
                 <th class="pb-2 pr-4">Peer</th>

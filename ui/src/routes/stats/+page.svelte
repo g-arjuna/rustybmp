@@ -60,15 +60,15 @@
 
 <svelte:head><title>BMP Stats — RustyBMP</title></svelte:head>
 
-<div class="p-6 space-y-6 max-w-6xl mx-auto">
+<div data-testid="page-stats" class="p-6 space-y-6 max-w-6xl mx-auto">
   <div class="flex items-center justify-between flex-wrap gap-3">
     <h1 class="text-2xl font-bold text-gray-100 flex items-center gap-2">
       <BarChart2 size={22} class="text-cyan-400" /> BMP Statistics
     </h1>
     <div class="flex items-center gap-2">
-      <input bind:value={peerFilter} on:change={load} placeholder="Filter by peer…"
+      <input data-testid="stats-peer-filter" bind:value={peerFilter} on:change={load} placeholder="Filter by peer…"
         class="bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm text-gray-200 w-40" />
-      <button on:click={load}
+      <button data-testid="stats-refresh" on:click={load}
         class="flex items-center gap-1.5 px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 text-sm rounded border border-gray-700">
         <RefreshCw size={13} /> Refresh
       </button>
@@ -119,7 +119,7 @@
 
     <!-- Raw table -->
     <div class="bg-gray-900 border border-gray-800 rounded-lg overflow-hidden overflow-x-auto">
-      <table class="w-full text-xs text-left">
+      <table data-testid="stats-table" class="w-full text-xs text-left">
         <thead>
           <tr class="text-gray-500 border-b border-gray-800 uppercase tracking-wider">
             <th class="px-4 py-3">Time</th>

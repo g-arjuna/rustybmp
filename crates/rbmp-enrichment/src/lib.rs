@@ -4,6 +4,8 @@ pub mod annotate;
 pub mod aspa;
 pub mod vault;
 pub mod bgpsec;
+pub mod netbox;
+pub mod servicenow_cmdb;
 
 pub use vrp_cache::{VrpCache, VrpEntry, RpkiState};
 pub use annotate::{EnrichmentEngine, RouteAnnotation};

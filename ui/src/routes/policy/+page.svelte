@@ -46,7 +46,7 @@
 
 <svelte:head><title>Policy Analysis — RustyBMP</title></svelte:head>
 
-<div class="p-6 space-y-6">
+<div data-testid="page-policy" class="p-6 space-y-6">
   <div class="flex items-center justify-between">
     <h1 class="text-2xl font-bold text-gray-100 flex items-center gap-2">
       <GitBranch size={22} class="text-blue-400" /> Policy Analysis
@@ -59,6 +59,7 @@
     <div class="flex gap-2">
       {#if peers.length > 0}
         <select
+          data-testid="policy-peer-select"
           bind:value={peerAddr}
           class="flex-1 bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-blue-500"
         >
@@ -67,6 +68,7 @@
         </select>
       {:else}
         <input
+          data-testid="policy-peer-input"
           bind:value={peerAddr}
           placeholder="192.0.2.1"
           class="flex-1 bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm text-gray-200
@@ -74,6 +76,7 @@
         />
       {/if}
       <button
+        data-testid="policy-analyse-btn"
         disabled={!peerAddr}
         on:click={loadPolicy}
         class="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white text-sm rounded"

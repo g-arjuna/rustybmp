@@ -45,7 +45,7 @@
   $: warning  = rows.filter((r: any) => r.used_pct >= 70 && r.used_pct < 90);
 </script>
 
-<div class="p-6 max-w-5xl mx-auto space-y-6">
+<div data-testid="page-capacity" class="p-6 max-w-5xl mx-auto space-y-6">
   <div>
     <h1 class="text-2xl font-bold text-white">Max-Prefix Capacity</h1>
     <p class="text-gray-400 text-sm mt-1">
@@ -55,7 +55,7 @@
 
   <!-- Summary KPIs -->
   {#if !loading && !error}
-    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+    <div data-testid="capacity-metrics" class="grid grid-cols-2 md:grid-cols-4 gap-4">
       <MetricCard label="Peers Tracked"  value={rows.length.toString()}            color="blue" />
       <MetricCard label="Critical ≥ 90%" value={critical.length.toString()}        color="red" />
       <MetricCard label="Warning 70-90%" value={warning.length.toString()}         color="yellow" />
@@ -63,7 +63,7 @@
     </div>
   {/if}
 
-  <button on:click={load}
+  <button data-testid="capacity-refresh" on:click={load}
     class="bg-blue-700 hover:bg-blue-600 text-white text-sm px-4 py-1.5 rounded-lg">
     Refresh
   </button>
@@ -87,7 +87,7 @@
   {:else}
     <!-- Fuel gauge table -->
     <div class="bg-gray-900/60 border border-gray-700 rounded-xl overflow-hidden">
-      <table class="w-full text-sm">
+      <table data-testid="capacity-table" class="w-full text-sm">
         <thead>
           <tr class="bg-gray-800/80 text-gray-400 text-left text-xs">
             <th class="px-4 py-3 font-medium">Peer / AFI-SAFI</th>

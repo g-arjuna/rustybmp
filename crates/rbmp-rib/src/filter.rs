@@ -446,4 +446,78 @@ mod tests {
         let (v2, _) = engine.apply(&v4("1.0.0.0/24"), 65001, peer(), &attrs);
         assert_eq!(v2, FilterVerdict::Default);
     }
+
+    #[test]
+    fn test_bogon_10_slash_8_rejected() {
+        let yaml = r#"
+- name: block-bogons
+  action: deny
+  prefix_list:
+    - 10.0.0.0/8
+    - 172.16.0.0/12
+    - 192.168.0.0/16
+"#;
+        let engine = FilterEngine::load_yaml(yaml).unwrap();
+        let attrs = make_attrs(None, None);
+
+        let (v, name) = engine.apply(&v4("10.0.0.0/8"), 65001, peer(), &attrs);
+        assert_eq!(v, FilterVerdict::Deny);
+        assert_eq!(name, Some("block-bogons"));
+    }
+
+    #[test]
+    fn test_bogon_192_168_rejected() {
+        let yaml = r#"
+- name: block-bogons
+  action: deny
+  prefix_list:
+    - 10.0.0.0/8
+    - 192.168.0.0/16
+"#;
+        let engine = FilterEngine::load_yaml(yaml).unwrap();
+        let attrs = make_attrs(None, None);
+
+        let (v, _) = engine.apply(&v4("192.168.1.0/24"), 65001, peer(), &attrs);
+        assert_eq!(v, FilterVerdict::Deny);
+
+        // Public prefix must not match bogon filter
+        let (v2, _) = engine.apply(&v4("8.8.8.0/24"), 65001, peer(), &attrs);
+        assert_eq!(v2, FilterVerdict::Default);
+    }
+
+    #[test]
+    fn test_filter_name_returned_on_match() {
+        let yaml = r#"
+- name: my-special-filter
+  action: deny
+  prefix_list:
+    - 203.0.113.0/24
+"#;
+        let engine = FilterEngine::load_yaml(yaml).unwrap();
+        let attrs = make_attrs(None, None);
+        let (_, name) = engine.apply(&v4("203.0.113.0/24"), 65001, peer(), &attrs);
+        assert_eq!(name, Some("my-special-filter"), "matched filter name must be returned");
+    }
+
+    #[test]
+    fn test_as_path_contains_filter() {
+        let yaml = r#"
+- name: block-transit-64512
+  action: deny
+  as_path_contains:
+    - 64512
+"#;
+        let engine = FilterEngine::load_yaml(yaml).unwrap();
+
+        let mut attrs_with_asn = make_attrs(None, None);
+        use rbmp_core::bgp::types::{AsPath, AsPathSegment};
+        attrs_with_asn.as_path = Some(AsPath(vec![AsPathSegment::Sequence(vec![65001, 64512, 65100])]));
+
+        let (v, _) = engine.apply(&v4("1.2.3.0/24"), 65001, peer(), &attrs_with_asn);
+        assert_eq!(v, FilterVerdict::Deny, "route with AS 64512 in path must be denied");
+
+        let attrs_clean = make_attrs(None, None);
+        let (v2, _) = engine.apply(&v4("1.2.3.0/24"), 65001, peer(), &attrs_clean);
+        assert_eq!(v2, FilterVerdict::Default, "route without AS 64512 must be default-accept");
+    }
 }

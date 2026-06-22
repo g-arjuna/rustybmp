@@ -1,9 +1,9 @@
 # RUSTYBMP — Project Context Reference
-## Updated: 2026-06-20 | RV7 Sprint | Retain in Claude Project
+## Updated: 2026-06-22 | RV9 Sprint | Retain in Claude Project
 
 ---
 
-## Current State: RV6 complete (77 tests, 0 warnings, 0 npm errors)
+## Current State: RV9 complete (101 Python tests passing, 0 build errors, 26 Playwright tests)
 
 ### Crates (8 total)
 ```
@@ -96,5 +96,21 @@ Complete: RFC7854, 8671, 9069, 9972, 7432 EVPN, 5575 Flowspec, 7752 BGP-LS,
 5549 unnumbered, draft-bmp-path-marking-tlv-05 (NEW RV7)
 RV7 adds full BGPsec validation
 
+## RV9 New Modules
+- `bmppy/rbmppy/acl_generator.py` — 4-vendor ACL/prefix-list/null-route generator (IOS-XR/FRR/JunOS/Arista)
+- `bmppy/rbmppy/policy_advisor.py` — rule-based filter gap analysis, RPKI/ASPA heuristics, Roto snippet output
+- `grafana/rustybmp-dashboard.json` — 11-panel Grafana 10+ dashboard (import-ready JSON)
+- `tests/scenarios/01_frr_minimal/` — ContainerLab Tier 0 FRR smoke test
+- `tests/scenarios/02_xrd_rfc9972/` — ContainerLab Tier 1 XRd RFC 9972 stats test
+- `ui/tests/rustybmp.spec.ts` — 26 Playwright E2E tests with mock API interception
+- `docs/CODEX_TESTING.md` — 7-layer test runbook (replaces UBUNTU_TESTING.md)
+
+## RV9 UI Pages Added
+- `/communities` — community frequency table, inferred semantics, filter
+- `/flowspec` — FlowSpec rules viewer, speaker filter, large-prefix alert
+- `/vrf` — VRF/RD explorer, per-VRF route table
+- `/query` — NL query page (example chips, SQL preview, results table)
+- `/adapters` — output adapter management (health, event counts, test-connection)
+
 ## Upload pattern
-Next diff: rv7_all_changes.patch
+Diff written: diffs/rv9/rv9_all_changes.patch (17,397 lines)

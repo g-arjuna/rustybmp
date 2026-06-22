@@ -200,6 +200,45 @@ export const api = {
   prefixVisibility: (prefix: string) =>
     get<{ prefix: string; internal: unknown; external: unknown; discrepancies: string[] }>(
       '/api/external/prefix-visibility', { prefix }),
+
+  // ── RV9 new endpoints ──────────────────────────────────────────────────────
+
+  // NL query (RV9-UX1)
+  nlQuery: (query: string) =>
+    fetch('/api/nl-query', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query }),
+    }).then(r => r.json() as Promise<{ sql: string; rows: Record<string, unknown>[]; error?: string }>),
+
+  // Output adapters (RV9-UX2 / OUT6)
+  adaptersList: () =>
+    get<{ adapters: { name: string; kind: string; enabled: boolean; healthy: boolean; last_push_at: string | null; event_count: number; error: string | null }[] }>(
+      '/api/adapters'),
+  adapterTest: (name: string) =>
+    fetch(`/api/adapters/${encodeURIComponent(name)}/test`, { method: 'POST' })
+      .then(r => r.json() as Promise<{ ok: boolean; message: string }>),
+
+  // Communities explorer (RV9-UX3)
+  communities: () =>
+    get<{ communities: { community: string; route_count: number; pre_policy: number; post_policy: number; first_seen: string | null; last_changed: string | null }[] }>(
+      '/api/communities'),
+  communitySemantics: () =>
+    get<{ semantics: { community: string; meaning: string; confidence: number; pattern: string | null }[] }>(
+      '/api/communities/semantics'),
+
+  // FlowSpec rules (RV9-UX5)
+  flowspecRules: (speaker?: string) =>
+    get<{ rules: unknown[] }>(
+      '/api/flowspec/rules', speaker ? { speaker } : undefined),
+
+  // VRF explorer (RV9-UX6)
+  vrfList: () =>
+    get<{ vrfs: { rd: string; vrf_name: string | null; route_count: number; peer_count: number; afi: string }[] }>(
+      '/api/vrf/list'),
+  vrfRoutes: (rd: string, limit = 500) =>
+    get<{ routes: unknown[] }>(
+      `/api/vrf/${encodeURIComponent(rd)}/routes`, { limit: String(limit) }),
 };
 
 /** Open the SSE /api/events stream and call onEvent for each event. */

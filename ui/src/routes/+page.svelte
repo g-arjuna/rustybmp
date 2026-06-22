@@ -101,10 +101,10 @@ router bgp 65001
   const isActive   = $derived(!!summary && summary.has_active_sessions);
 </script>
 
-<div class="p-6 space-y-6">
+<div data-testid="page-dashboard" class="p-6 space-y-6">
   <!-- Header -->
   <div class="flex items-center justify-between">
-    <h1 class="text-2xl font-bold text-gray-100">Dashboard</h1>
+    <h1 data-testid="page-title" class="text-2xl font-bold text-gray-100">Dashboard</h1>
     <span class="flex items-center gap-2 text-sm {health === 'ok' ? 'text-emerald-400' : health === 'error' ? 'text-red-400' : 'text-gray-400'}">
       <span class="inline-block w-2 h-2 rounded-full {health === 'ok' ? 'bg-emerald-400' : health === 'error' ? 'bg-red-400' : 'bg-gray-500'}"></span>
       {health === 'ok' ? 'Connected' : health === 'loading' ? 'Connecting…' : 'Unreachable'}

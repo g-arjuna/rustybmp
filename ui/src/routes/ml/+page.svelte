@@ -62,17 +62,17 @@
 
 <svelte:head><title>ML Insights — RustyBMP</title></svelte:head>
 
-<div class="p-6 space-y-6 max-w-6xl mx-auto">
+<div data-testid="page-ml" class="p-6 space-y-6 max-w-6xl mx-auto">
   <div class="flex items-center justify-between">
     <h1 class="text-2xl font-bold text-gray-100 flex items-center gap-2">
       <Cpu size={22} class="text-purple-400" /> ML Anomaly Insights
     </h1>
     <div class="flex items-center gap-2">
-      <select bind:value={kindFilter} on:change={load}
+      <select data-testid="ml-kind-filter" bind:value={kindFilter} on:change={load}
         class="bg-gray-800 border border-gray-700 text-gray-300 text-sm rounded px-3 py-1.5">
         {#each KINDS as k}<option value={k}>{k || 'All kinds'}</option>{/each}
       </select>
-      <button on:click={load}
+      <button data-testid="ml-refresh" on:click={load}
         class="flex items-center gap-1.5 px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 text-sm rounded border border-gray-700">
         <RefreshCw size={13} /> Refresh
       </button>

@@ -41,7 +41,7 @@
   }
 </script>
 
-<div class="p-6 max-w-7xl mx-auto space-y-6">
+<div data-testid="page-srpolicy" class="p-6 max-w-7xl mx-auto space-y-6">
   <div>
     <h1 class="text-2xl font-bold text-white">SR Policy</h1>
     <p class="text-gray-400 text-sm mt-1">BGP-SR Policy NLRIs (RFC 9252 / AFI 1/2 SAFI 73)</p>
@@ -57,6 +57,7 @@
 
   <div class="flex gap-3">
     <input
+      data-testid="srpolicy-filter"
       bind:value={filter}
       placeholder="Filter by peer, endpoint, color…"
       class="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white"

@@ -43,13 +43,14 @@
   );
 </script>
 
-<div class="p-6 space-y-5">
+<div data-testid="page-prefixes" class="p-6 space-y-5">
   <div class="flex items-center justify-between flex-wrap gap-3">
     <h1 class="text-2xl font-bold text-gray-100">Prefixes</h1>
     <div class="flex items-center gap-2">
       <div class="relative">
         <Search size={13} class="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-500" />
         <input
+          data-testid="prefixes-search"
           bind:value={search}
           onchange={load}
           placeholder="Search prefix…"
@@ -58,6 +59,7 @@
         />
       </div>
       <button
+        data-testid="prefixes-live-toggle"
         onclick={toggleLive}
         class="px-3 py-1.5 rounded-lg text-xs font-medium transition-colors
                {liveMode
@@ -67,6 +69,7 @@
         {liveMode ? '⬤ Live' : 'Live'}
       </button>
       <button
+        data-testid="prefixes-refresh"
         onclick={load}
         class="p-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-400 hover:text-gray-100"
       >
@@ -79,7 +82,7 @@
     <p class="text-gray-500 text-sm">Loading…</p>
   {:else}
     <div class="bg-gray-900 rounded-xl border border-gray-800 overflow-hidden overflow-x-auto">
-      <table class="w-full text-sm min-w-[800px]">
+      <table data-testid="prefixes-table" class="w-full text-sm min-w-[800px]">
         <thead>
           <tr class="border-b border-gray-800 text-gray-500 text-xs uppercase tracking-wider">
             <th class="px-4 py-3 text-left">Prefix</th>
@@ -94,7 +97,7 @@
         </thead>
         <tbody>
           {#each filtered as r}
-            <tr class="border-b border-gray-800/50 hover:bg-gray-800/30 transition-colors">
+            <tr data-testid="prefix-row-{r.prefix}" class="border-b border-gray-800/50 hover:bg-gray-800/30 transition-colors">
               <td class="px-4 py-2.5 font-mono text-xs">
                 <a
                   href="/prefix/{encodeURIComponent(r.prefix)}"

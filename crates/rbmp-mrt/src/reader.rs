@@ -227,4 +227,103 @@ mod tests {
         let records: Vec<_> = MrtReader::new(cursor).collect::<Result<Vec<_>>>().unwrap();
         assert_eq!(records.len(), 3);
     }
+
+    #[test]
+    fn test_is_bgp4mp_true() {
+        let mut buf = Vec::new();
+        writer::write_bgp4mp_state_change(
+            &mut buf, &ts(), 65001, 65000,
+            "10.0.0.1".parse().unwrap(), "10.0.0.2".parse().unwrap(),
+            writer::BgpState::Active, writer::BgpState::Established,
+        ).unwrap();
+        let mut cursor = std::io::Cursor::new(&buf);
+        let record = read_record(&mut cursor).unwrap().unwrap();
+        assert!(record.is_bgp4mp(), "BGP4MP record must report is_bgp4mp()=true");
+        assert!(!record.is_table_dump_v2(), "BGP4MP must not be TableDumpV2");
+    }
+
+    #[test]
+    fn test_timestamp_preserved() {
+        let expected_ts = Utc.timestamp_opt(1_600_000_000, 0).unwrap();
+        let mut buf = Vec::new();
+        writer::write_bgp4mp_state_change(
+            &mut buf, &expected_ts, 65001, 65000,
+            "10.0.0.1".parse().unwrap(), "10.0.0.2".parse().unwrap(),
+            writer::BgpState::Idle, writer::BgpState::Active,
+        ).unwrap();
+        let mut cursor = std::io::Cursor::new(&buf);
+        let record = read_record(&mut cursor).unwrap().unwrap();
+        assert_eq!(record.timestamp, expected_ts, "MRT timestamp must survive write→read roundtrip");
+    }
+
+    #[test]
+    fn test_truncated_header_returns_error() {
+        // 11-byte header (MRT header is 12 bytes) — partial write
+        let buf = vec![0u8; 11];
+        let mut cursor = std::io::Cursor::new(&buf);
+        // read_record should return Err (UnexpectedEof becomes error for non-zero partial read)
+        // The implementation returns Ok(None) for clean EOF only; partial is Err
+        let result = read_record(&mut cursor);
+        // Either Err or Ok(None) are acceptable; crucially not Ok(Some(_))
+        assert!(result.is_err() || result.unwrap().is_none(),
+            "Truncated header must not produce a valid record");
+    }
+
+    #[test]
+    fn test_bgp4mp_message_peer_as_preserved() {
+        let bgp_bytes = vec![0u8; 19];
+        let mut buf = Vec::new();
+        writer::write_bgp4mp_message(
+            &mut buf, &ts(), 64512, 65000, 0,
+            "10.1.1.1".parse().unwrap(), "10.1.1.2".parse().unwrap(),
+            &bgp_bytes,
+        ).unwrap();
+        let mut cursor = std::io::Cursor::new(&buf);
+        let record = read_record(&mut cursor).unwrap().unwrap();
+        let (hdr, _pdu) = parse_bgp4mp_message(&record.body).unwrap();
+        assert_eq!(hdr.peer_as, 64512, "peer AS must be preserved through MRT write/read");
+    }
+
+    #[test]
+    fn test_bgp4mp_message_peer_addr_preserved() {
+        let bgp_bytes = vec![0u8; 19];
+        let mut buf = Vec::new();
+        let expected_addr: IpAddr = "192.168.99.1".parse().unwrap();
+        writer::write_bgp4mp_message(
+            &mut buf, &ts(), 65001, 65000, 0,
+            expected_addr, "192.168.99.2".parse().unwrap(),
+            &bgp_bytes,
+        ).unwrap();
+        let mut cursor = std::io::Cursor::new(&buf);
+        let record = read_record(&mut cursor).unwrap().unwrap();
+        let (hdr, _) = parse_bgp4mp_message(&record.body).unwrap();
+        assert_eq!(hdr.peer_addr, expected_addr, "peer addr must survive MRT roundtrip");
+    }
+
+    #[test]
+    fn test_reader_empty_stream_yields_no_records() {
+        let cursor = std::io::Cursor::new(vec![]);
+        let records: Vec<_> = MrtReader::new(cursor).collect::<Result<Vec<_>>>().unwrap();
+        assert_eq!(records.len(), 0, "empty stream must yield zero records");
+    }
+
+    #[test]
+    fn test_five_records_roundtrip() {
+        let mut buf = Vec::new();
+        for i in 0u32..5 {
+            let bgp = vec![i as u8; 19];
+            writer::write_bgp4mp_message(
+                &mut buf, &ts(), 65001 + i, 65000, 0,
+                "10.0.0.1".parse().unwrap(), "10.0.0.2".parse().unwrap(),
+                &bgp,
+            ).unwrap();
+        }
+        let cursor = std::io::Cursor::new(&buf);
+        let records: Vec<_> = MrtReader::new(cursor).collect::<Result<Vec<_>>>().unwrap();
+        assert_eq!(records.len(), 5);
+        for (i, record) in records.iter().enumerate() {
+            let (hdr, _) = parse_bgp4mp_message(&record.body).unwrap();
+            assert_eq!(hdr.peer_as, 65001 + i as u32);
+        }
+    }
 }

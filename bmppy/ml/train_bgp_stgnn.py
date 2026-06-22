@@ -41,7 +41,7 @@ logger = logging.getLogger(__name__)
 
 # ─── Constants ────────────────────────────────────────────────────────────────
 
-NUM_NODE_FEATURES  = 5   # must match topology_snapshot.NODE_FEATURE_COLS
+NUM_NODE_FEATURES  = 11  # must match topology_snapshot.NODE_FEATURE_COLS
 HIDDEN_DIM         = 64
 GRU_LAYERS         = 2
 GAT_HEADS          = 4

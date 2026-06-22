@@ -33,7 +33,7 @@
   }
 </script>
 
-<div class="p-6 max-w-3xl mx-auto space-y-6">
+<div data-testid="page-bgpls-path" class="p-6 max-w-3xl mx-auto space-y-6">
   <div>
     <h1 class="text-2xl font-bold text-white">BGP-LS Path Computation</h1>
     <p class="text-gray-400 text-sm mt-1">Dijkstra shortest IGP path between two routers using BGP-LS link metrics</p>
@@ -44,6 +44,7 @@
       <div class="space-y-1">
         <label class="text-xs text-gray-400">Source Router ID</label>
         <input
+          data-testid="bgpls-source"
           bind:value={from}
           list="node-list"
           class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm text-white font-mono"
@@ -53,6 +54,7 @@
       <div class="space-y-1">
         <label class="text-xs text-gray-400">Destination Router ID</label>
         <input
+          data-testid="bgpls-dest"
           bind:value={to}
           list="node-list"
           class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm text-white font-mono"
@@ -68,6 +70,7 @@
     </datalist>
 
     <button
+      data-testid="bgpls-find-btn"
       on:click={findPath}
       disabled={loading || !from || !to}
       class="px-5 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white rounded-lg text-sm font-medium transition-colors"

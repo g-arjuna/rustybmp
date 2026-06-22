@@ -1,6 +1,6 @@
 <script lang="ts">
   import { page } from '$app/stores';
-  import { Activity, Network, Route, Bell, BarChart3, Shield, GitBranch, Cpu, Radio, BarChart2, Server, Filter, Zap, Map, TrendingUp } from 'lucide-svelte';
+  import { Activity, Network, Route, Bell, BarChart3, Shield, GitBranch, Cpu, Radio, BarChart2, Server, Filter, Zap, Map, TrendingUp, Search, Plug, Tag, Layers } from 'lucide-svelte';
 
   const navItems = [
     { href: '/',           label: 'Dashboard',    icon: Activity },
@@ -20,21 +20,27 @@
     { href: '/onboard',    label: 'Onboarding',   icon: Server },
     { href: '/ml',         label: 'ML Insights',  icon: Cpu },
     { href: '/stats',      label: 'BMP Stats',    icon: BarChart2 },
+    { href: '/query',      label: 'NL Query',     icon: Search },
+    { href: '/adapters',   label: 'Adapters',     icon: Plug },
+    { href: '/communities', label: 'Communities',  icon: Tag },
+    { href: '/flowspec',   label: 'FlowSpec',     icon: Zap },
+    { href: '/vrf',        label: 'VRF Explorer', icon: Layers },
   ];
 </script>
 
 <div class="flex h-screen overflow-hidden">
   <!-- Sidebar -->
-  <aside class="w-56 flex-shrink-0 bg-gray-900 border-r border-gray-800 flex flex-col">
+  <aside data-testid="sidebar" class="w-56 flex-shrink-0 bg-gray-900 border-r border-gray-800 flex flex-col">
     <div class="px-4 py-5 border-b border-gray-800">
       <span class="text-lg font-bold text-emerald-400 tracking-tight">RustyBMP</span>
-      <span class="ml-2 text-xs bg-emerald-800/60 text-emerald-300 px-1.5 py-0.5 rounded font-mono">RV6</span>
+      <span class="ml-2 text-xs bg-emerald-800/60 text-emerald-300 px-1.5 py-0.5 rounded font-mono">RV9</span>
     </div>
-    <nav class="flex-1 py-4 space-y-1 px-2">
+    <nav data-testid="main-nav" class="flex-1 py-4 space-y-1 px-2">
       {#each navItems as item}
         {@const active = $page.url.pathname === item.href}
         <a
           href={item.href}
+          data-testid="nav-{item.href.replace('/', '') || 'dashboard'}"
           class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors
                  {active
                    ? 'bg-emerald-600/20 text-emerald-400'
@@ -51,7 +57,7 @@
   </aside>
 
   <!-- Main content -->
-  <main class="flex-1 overflow-auto bg-gray-950">
+  <main data-testid="main-content" class="flex-1 overflow-auto bg-gray-950">
     <slot />
   </main>
 </div>

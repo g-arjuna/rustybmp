@@ -153,7 +153,7 @@
   onMount(() => { load(); });
 </script>
 
-<div class="p-6 space-y-4 h-full flex flex-col">
+<div data-testid="page-topology" class="p-6 space-y-4 h-full flex flex-col">
   <div class="flex items-center justify-between flex-wrap gap-3">
     <div>
       <h1 class="text-2xl font-bold text-gray-100">BGP-LS Topology</h1>
@@ -170,6 +170,7 @@
     </div>
     <div class="flex items-center gap-2">
       <select
+        data-testid="topology-protocol-filter"
         bind:value={protocol}
         onchange={load}
         class="bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200
@@ -183,6 +184,7 @@
         <option value="Direct">Direct</option>
       </select>
       <button
+        data-testid="topology-refresh"
         onclick={load}
         class="p-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-400 hover:text-gray-100"
       >
@@ -213,6 +215,7 @@
   {:else if renderMode === 'force'}
     <!-- Mode A: Force-directed D3 (< 100 nodes) -->
     <svg
+      data-testid="topology-graph"
       bind:this={svgEl}
       class="flex-1 bg-gray-900 rounded-xl border border-gray-800 w-full"
       style="min-height: 500px"

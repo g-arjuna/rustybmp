@@ -61,7 +61,7 @@
 
 <svelte:head><title>AS Path Explorer — RustyBMP</title></svelte:head>
 
-<div class="p-6 space-y-6 max-w-7xl mx-auto">
+<div data-testid="page-aspath" class="p-6 space-y-6 max-w-7xl mx-auto">
   <div class="flex items-center justify-between flex-wrap gap-3">
     <h1 class="text-2xl font-bold text-gray-100 flex items-center gap-2">
       <Radio size={22} class="text-indigo-400" /> AS Path Explorer
@@ -69,11 +69,11 @@
     <div class="flex items-center gap-2">
       <div class="relative">
         <Search size={13} class="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-500" />
-        <input bind:value={search} on:change={load} placeholder="prefix or AS…"
+        <input data-testid="aspath-search" bind:value={search} on:change={load} placeholder="prefix or AS…"
           class="bg-gray-900 border border-gray-700 rounded-lg pl-7 pr-3 py-1.5 text-sm text-gray-200
                  placeholder-gray-600 focus:outline-none focus:border-indigo-500 w-48" />
       </div>
-      <button on:click={load}
+      <button data-testid="aspath-refresh" on:click={load}
         class="p-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-400 hover:text-gray-100">
         <RefreshCw size={14} />
       </button>
@@ -130,7 +130,7 @@
     <div class="text-gray-500 text-sm animate-pulse">Loading routes…</div>
   {:else}
     <div class="bg-gray-900 border border-gray-800 rounded-lg overflow-hidden overflow-x-auto">
-      <table class="w-full text-xs text-left min-w-[700px]">
+      <table data-testid="aspath-table" class="w-full text-xs text-left min-w-[700px]">
         <thead>
           <tr class="text-gray-500 border-b border-gray-800 uppercase tracking-wider text-xs">
             <th class="px-4 py-3">Prefix</th>

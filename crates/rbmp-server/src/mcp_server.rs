@@ -545,3 +545,108 @@ fn nl_to_sql(question: &str, limit: usize) -> String {
          ORDER BY occurred_at DESC LIMIT {limit}"
     )
 }
+
+// ── Unit tests ────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tool_names_count_is_11() {
+        assert_eq!(
+            TOOL_NAMES.len(), 11,
+            "TOOL_NAMES must contain exactly 11 tool names (RV8-MC1 spec)"
+        );
+    }
+
+    #[test]
+    fn tool_names_no_duplicates() {
+        let mut seen = std::collections::HashSet::new();
+        for name in TOOL_NAMES {
+            assert!(seen.insert(*name), "Duplicate tool name: {name}");
+        }
+    }
+
+    #[test]
+    fn tool_names_contains_nl_query() {
+        assert!(
+            TOOL_NAMES.contains(&"nl_query"),
+            "TOOL_NAMES must include 'nl_query' (RV8-MC3)"
+        );
+    }
+
+    #[test]
+    fn anomaly_catalogue_has_five_entries() {
+        assert_eq!(
+            ANOMALY_CATALOGUE.len(), 5,
+            "ANOMALY_CATALOGUE must have 5 entries"
+        );
+    }
+
+    #[test]
+    fn anomaly_catalogue_kinds_unique() {
+        let kinds: Vec<&str> = ANOMALY_CATALOGUE.iter().map(|m| m.kind).collect();
+        let unique: std::collections::HashSet<&str> = kinds.iter().copied().collect();
+        assert_eq!(kinds.len(), unique.len(), "ANOMALY_CATALOGUE kinds must be unique");
+    }
+
+    #[test]
+    fn anomaly_catalogue_each_has_verification_query() {
+        for entry in ANOMALY_CATALOGUE {
+            assert!(
+                !entry.verification_queries.is_empty(),
+                "Anomaly kind '{}' has no verification queries", entry.kind
+            );
+        }
+    }
+
+    #[test]
+    fn nl_query_to_sql_rpki() {
+        let sql = nl_to_sql("show rpki invalid routes", 50);
+        assert!(
+            sql.to_lowercase().contains("rpki"),
+            "nl_query RPKI question should reference rpki column, got: {sql}"
+        );
+    }
+
+    #[test]
+    fn nl_query_to_sql_flap() {
+        let sql = nl_to_sql("which peers have flapped down?", 50);
+        assert!(
+            sql.to_lowercase().contains("peer_down") || sql.to_lowercase().contains("peer_up") || sql.to_lowercase().contains("peer"),
+            "nl_query flap question should reference peer_down/peer_up, got: {sql}"
+        );
+    }
+
+    #[test]
+    fn nl_query_to_sql_default_returns_route_events() {
+        let sql = nl_to_sql("xyzzy unknown query string", 10);
+        assert!(
+            sql.contains("route_events"),
+            "nl_query default fallback must query route_events, got: {sql}"
+        );
+    }
+
+    #[test]
+    fn token_budget_initially_allows_small_queries() {
+        // Reset budget to known state by consuming 0 tokens first
+        // consume_nl_tokens uses global state so just verify it returns true for small amount
+        // (budget starts at 500_000, any small query should succeed in a fresh test run)
+        let ok = consume_nl_tokens(100);
+        assert!(ok, "consume_nl_tokens(100) should succeed when budget > 0");
+    }
+
+    #[test]
+    fn nl_to_sql_convergence_keyword() {
+        let sql = nl_to_sql("show convergence events", 25);
+        assert!(
+            sql.contains("convergence_events"),
+            "nl_to_sql 'convergence' must query convergence_events table, got: {sql}"
+        );
+        assert!(
+            sql.contains("25"),
+            "LIMIT must reflect the passed limit argument, got: {sql}"
+        );
+    }
+}
