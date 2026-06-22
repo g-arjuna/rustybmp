@@ -14,14 +14,14 @@ INSERT INTO convergence_events
      trigger_type, affected_prefixes, recovered_prefixes, unreachable_after)
 VALUES
   ('conv-001',
-   NOW() - INTERVAL '30 minutes', NOW() - INTERVAL '29 minutes 55 seconds',
+   CAST(NOW() AS TIMESTAMP) - INTERVAL '30 minutes', CAST(NOW() AS TIMESTAMP) - INTERVAL '29 minutes 55 seconds',
    4200.0,  '10.0.0.100', '10.0.0.1', 'peer_down',       312,  298,  14),
   ('conv-002',
-   NOW() - INTERVAL '1 hour',     NOW() - INTERVAL '59 minutes 59 seconds',
+   CAST(NOW() AS TIMESTAMP) - INTERVAL '1 hour',     CAST(NOW() AS TIMESTAMP) - INTERVAL '59 minutes 59 seconds',
    1100.0,  '10.0.0.100', '10.0.0.2', 'mass_withdraw',   89,   89,   0),
   ('conv-003',
-   NOW() - INTERVAL '2 hours',    NOW() - INTERVAL '1 hour 59 minutes 41 seconds',
+   CAST(NOW() AS TIMESTAMP) - INTERVAL '2 hours',    CAST(NOW() AS TIMESTAMP) - INTERVAL '1 hour 59 minutes 41 seconds',
    18700.0, '10.0.0.200', '10.0.0.3', 'peer_down',       5000, 4991, 9),
   ('conv-004',
-   NOW() - INTERVAL '10 minutes', NOW() - INTERVAL '9 minutes 59 seconds',
+   CAST(NOW() AS TIMESTAMP) - INTERVAL '10 minutes', CAST(NOW() AS TIMESTAMP) - INTERVAL '9 minutes 59 seconds',
    80.0,    '10.0.0.200', '10.0.0.4', 'mass_withdraw',   1,    1,    0);

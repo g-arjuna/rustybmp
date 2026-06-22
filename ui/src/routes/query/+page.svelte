@@ -1,9 +1,10 @@
 <script lang="ts">
   import { Search, Play, ChevronDown, ChevronRight, RefreshCw } from 'lucide-svelte';
+  import { get, writable } from 'svelte/store';
 
   type ResultRow = Record<string, unknown>;
 
-  let query      = $state('');
+  const queryText = writable('');
   let loading    = $state(false);
   let error      = $state('');
   let sql        = $state('');
@@ -21,14 +22,15 @@
   ];
 
   async function runQuery() {
-    if (!query.trim()) return;
+    const query = get(queryText).trim();
+    if (!query) return;
     loading = true; error = ''; sql = ''; rows = []; columns = [];
     const t0 = performance.now();
     try {
       const res = await fetch('/api/nl-query', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: query.trim() }),
+        body: JSON.stringify({ query }),
       });
       const j = await res.json() as { sql?: string; rows?: ResultRow[]; error?: string };
       elapsed = performance.now() - t0;
@@ -61,12 +63,22 @@
   <!-- Example chips -->
   <div class="flex flex-wrap gap-2">
     {#each EXAMPLES as ex}
-      <button
+      <label
         data-testid="query-example-chip"
-        onclick={() => { query = ex; }}
+        class="cursor-pointer"
+      >
+        <input
+          type="radio"
+          name="query-example"
+          value={ex}
+          bind:group={$queryText}
+          class="sr-only"
+        />
+        <span
         class="px-3 py-1.5 rounded-full text-xs bg-gray-800 border border-gray-700 text-gray-400
                hover:bg-gray-700 hover:text-gray-200 hover:border-emerald-600 transition-colors"
-      >{ex}</button>
+        >{ex}</span>
+      </label>
     {/each}
   </div>
 
@@ -74,7 +86,7 @@
   <div class="space-y-2">
     <textarea
       data-testid="query-input"
-      bind:value={query}
+      bind:value={$queryText}
       onkeydown={handleKey}
       placeholder="e.g. Show me all RPKI invalid routes announced in the last 24 hours"
       rows="3"
@@ -85,7 +97,7 @@
       <button
         data-testid="query-run-btn"
         onclick={runQuery}
-        disabled={loading || !query.trim()}
+        disabled={loading || !$queryText.trim()}
         class="flex items-center gap-2 px-5 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40
                disabled:cursor-not-allowed text-white text-sm rounded-lg font-medium transition-colors"
       >

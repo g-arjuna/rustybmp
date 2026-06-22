@@ -67,3 +67,29 @@ pub async fn aspath_graph(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(Json(graph))
 }
+
+/// GET /api/analytics/churn
+pub async fn analytics_churn(
+    State(state): State<AppState>,
+) -> Result<Json<Value>, StatusCode> {
+    let rows = state.queries
+        .top_churning_prefixes(20)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let prefixes = rows.into_iter()
+        .map(|(prefix, events)| json!({ "prefix": prefix, "events": events }))
+        .collect::<Vec<_>>();
+    Ok(Json(json!({ "prefixes": prefixes })))
+}
+
+/// GET /api/analytics/origins
+pub async fn analytics_origins(
+    State(state): State<AppState>,
+) -> Result<Json<Value>, StatusCode> {
+    let rows = state.queries
+        .as_origin_counts(20)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let origins = rows.into_iter()
+        .map(|(asn, prefix_count)| json!({ "asn": asn, "prefix_count": prefix_count }))
+        .collect::<Vec<_>>();
+    Ok(Json(json!({ "origins": origins })))
+}

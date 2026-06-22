@@ -19,7 +19,7 @@ pub struct PrefixQuery {
 
 #[derive(Debug, Deserialize)]
 pub struct ChangesQuery {
-    pub since: String,
+    pub since: Option<String>,
     pub until: Option<String>,
     #[serde(default = "default_limit")]
     pub limit: usize,
@@ -83,8 +83,9 @@ pub async fn route_changes(
     Query(q): Query<ChangesQuery>,
     State(state): State<AppState>,
 ) -> Result<Json<Value>, StatusCode> {
+    let since = q.since.unwrap_or_else(|| "1970-01-01T00:00:00Z".to_string());
     let changes = state.queries
-        .route_changes(&q.since, q.until.as_deref(), q.limit)
+        .route_changes(&since, q.until.as_deref(), q.limit)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(Json(json!({ "changes": changes, "count": changes.len() })))
 }

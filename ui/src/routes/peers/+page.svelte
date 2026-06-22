@@ -48,22 +48,24 @@
     </div>
   </div>
 
-  {#if loading}
-    <p class="text-gray-500 text-sm">Loading…</p>
-  {:else}
-    <div class="bg-gray-900 rounded-xl border border-gray-800 overflow-hidden">
-      <table data-testid="peers-table" class="w-full text-sm">
-        <thead>
-          <tr class="border-b border-gray-800 text-gray-500 text-xs uppercase tracking-wider">
-            <th class="px-4 py-3 text-left">Peer</th>
-            <th class="px-4 py-3 text-left">AS</th>
-            <th class="px-4 py-3 text-left">RIB</th>
-            <th class="px-4 py-3 text-left">State</th>
-            <th class="px-4 py-3 text-right">Prefixes</th>
-            <th class="px-4 py-3 text-right">Hold</th>
+  <div class="bg-gray-900 rounded-xl border border-gray-800 overflow-hidden">
+    <table data-testid="peers-table" class="w-full text-sm">
+      <thead>
+        <tr class="border-b border-gray-800 text-gray-500 text-xs uppercase tracking-wider">
+          <th class="px-4 py-3 text-left">Peer</th>
+          <th class="px-4 py-3 text-left">AS</th>
+          <th class="px-4 py-3 text-left">RIB</th>
+          <th class="px-4 py-3 text-left">State</th>
+          <th class="px-4 py-3 text-right">Prefixes</th>
+          <th class="px-4 py-3 text-right">Hold</th>
+        </tr>
+      </thead>
+      <tbody>
+        {#if loading}
+          <tr>
+            <td colspan="6" class="px-4 py-8 text-center text-gray-500 text-sm">Loading…</td>
           </tr>
-        </thead>
-        <tbody>
+        {:else}
           {#each filtered as peer}
             <tr data-testid="peer-row-{peer.peer_addr}" class="border-b border-gray-800/50 hover:bg-gray-800/30 transition-colors">
               <td class="px-4 py-3 font-mono">
@@ -88,9 +90,11 @@
               <td colspan="6" class="px-4 py-8 text-center text-gray-600 italic">No peers found</td>
             </tr>
           {/each}
-        </tbody>
-      </table>
-    </div>
+        {/if}
+      </tbody>
+    </table>
+  </div>
+  {#if !loading}
     <p class="text-xs text-gray-600">{filtered.length} of {peers.length} peers</p>
   {/if}
 </div>

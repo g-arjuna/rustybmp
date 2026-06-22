@@ -40,6 +40,10 @@ pub struct QueryEngine {
     store: Arc<Mutex<RouteStore>>,
 }
 
+fn now_minus(interval: &str) -> String {
+    format!("CAST(NOW() AS TIMESTAMP) - INTERVAL '{interval}'")
+}
+
 impl QueryEngine {
     pub fn new(store: Arc<Mutex<RouteStore>>) -> Self { Self { store } }
 
@@ -151,9 +155,10 @@ impl QueryEngine {
                 COUNT(*) AS event_count
                FROM route_events
                WHERE prefix = '{prefix}'
-                 AND occurred_at >= NOW() - INTERVAL '{days} days'
+                 AND occurred_at >= {since_expr}
                GROUP BY bucket, action
-               ORDER BY bucket"#
+               ORDER BY bucket"#,
+            since_expr = now_minus(&format!("{days} days"))
         );
         let mut stmt = conn.prepare(&sql)?;
         let rows = stmt.query_map([], |row| {
@@ -239,8 +244,9 @@ impl QueryEngine {
                       epoch(lead(occurred_at) OVER (ORDER BY occurred_at)) - epoch(occurred_at) AS duration_secs
                FROM peer_events
                WHERE peer_addr = '{peer_addr}'
-                 AND occurred_at >= NOW() - INTERVAL '{days} days'
-               ORDER BY occurred_at DESC"#
+                 AND occurred_at >= {since_expr}
+               ORDER BY occurred_at DESC"#,
+            since_expr = now_minus(&format!("{days} days"))
         );
         let mut stmt = conn.prepare(&sql)?;
         let rows = stmt.query_map([], |row| {
@@ -262,6 +268,13 @@ impl QueryEngine {
     pub fn rpki_analysis(&self) -> Result<serde_json::Value> {
         let locked = self.store.lock().unwrap();
         let conn = locked.conn();
+        let has_rpki_validity: bool = conn.query_row(
+            "SELECT COUNT(*) > 0 FROM information_schema.columns WHERE table_name = 'route_events' AND column_name = 'rpki_validity'",
+            [], |row| row.get(0),
+        ).unwrap_or(false);
+        if !has_rpki_validity {
+            return Ok(serde_json::json!({ "breakdown": [], "per_peer": [] }));
+        }
 
         // Overall breakdown
         let breakdown_sql = r#"SELECT rpki_validity, COUNT(DISTINCT prefix) AS cnt
@@ -502,6 +515,20 @@ impl QueryEngine {
     pub fn rpki_coverage(&self) -> Result<serde_json::Value> {
         let locked = self.store.lock().unwrap();
         let conn = locked.conn();
+        let has_rpki_validity: bool = conn.query_row(
+            "SELECT COUNT(*) > 0 FROM information_schema.columns WHERE table_name = 'route_events' AND column_name = 'rpki_validity'",
+            [], |row| row.get(0),
+        ).unwrap_or(false);
+        if !has_rpki_validity {
+            return Ok(serde_json::json!({
+                "total_prefixes": 0,
+                "covered": 0,
+                "not_covered": 0,
+                "valid": 0,
+                "invalid": 0,
+                "coverage_pct": 0.0,
+            }));
+        }
         let sql = r#"
             SELECT
                 COUNT(DISTINCT prefix) AS total_prefixes,
@@ -595,10 +622,11 @@ impl QueryEngine {
                       speaker_addr, peer_addr, trigger_type,
                       affected_prefixes, recovered_prefixes, unreachable_after
                FROM convergence_events
-               WHERE started_at >= NOW() - INTERVAL '{hours} hours'
+               WHERE started_at >= {since_expr}
                {peer_filter}
                ORDER BY started_at DESC
-               LIMIT {limit}"#
+               LIMIT {limit}"#,
+            since_expr = now_minus(&format!("{hours} hours"))
         );
         let rows = conn.prepare(&sql)?
             .query_map([], |row| {
@@ -684,10 +712,10 @@ impl QueryEngine {
             ),
             trend AS (
                 SELECT speaker_addr, peer_addr,
-                       REGR_SLOPE(value, epoch(occurred_at)) * 86400 AS slope_per_day
+                       REGR_SLOPE(counter_value, epoch(occurred_at)) * 86400 AS slope_per_day
                 FROM stats_events
-                WHERE name = 'Prefixes'
-                  AND occurred_at >= NOW() - INTERVAL '7 days'
+                WHERE counter_name = 'Prefixes'
+                  AND occurred_at >= CAST(NOW() AS TIMESTAMP) - INTERVAL '7 days'
                 GROUP BY speaker_addr, peer_addr
             )
             SELECT

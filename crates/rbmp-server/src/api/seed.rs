@@ -17,6 +17,7 @@
 ///   `RUSTYBMP_TEST_MODE=1`, and it is always behind the JWT middleware.
 use axum::{extract::State, Json};
 use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
 use tracing::info;
 use crate::state::AppState;
 
@@ -62,6 +63,36 @@ DELETE FROM convergence_events;
 DELETE FROM peer_max_prefix;
 ";
 
+fn load_fixture_sql(path: &Path) -> std::io::Result<String> {
+    let raw = std::fs::read_to_string(path)?;
+    let base = path.parent().unwrap_or_else(|| Path::new("."));
+    let mut expanded = String::new();
+
+    for line in raw.lines() {
+        let trimmed = line.trim();
+        if let Some(include_path) = trimmed.strip_prefix("\\i ") {
+            let include_str = include_path.trim();
+            let include = {
+                let candidate = base.join(include_str);
+                if candidate.exists() {
+                    candidate
+                } else {
+                    PathBuf::from(include_str)
+                }
+            };
+            expanded.push_str(&load_fixture_sql(&include)?);
+            if !expanded.ends_with('\n') {
+                expanded.push('\n');
+            }
+        } else {
+            expanded.push_str(line);
+            expanded.push('\n');
+        }
+    }
+
+    Ok(expanded)
+}
+
 pub async fn seed_handler(
     State(state): State<AppState>,
     Json(req): Json<SeedRequest>,
@@ -85,7 +116,7 @@ pub async fn seed_handler(
         });
     };
 
-    let sql = match std::fs::read_to_string(path) {
+    let sql = match load_fixture_sql(&PathBuf::from(path)) {
         Ok(s)  => s,
         Err(e) => return Json(SeedResponse {
             ok: false,

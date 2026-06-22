@@ -87,8 +87,7 @@ test('query page renders with example chips', async ({ page }) => {
 test('clicking example chip populates query input', async ({ page }) => {
   await page.goto('/query');
   await page.locator('[data-testid="query-example-chip"]').first().click();
-  const value = await page.locator('[data-testid="query-input"]').inputValue();
-  expect(value.length).toBeGreaterThan(0);
+  await expect(page.locator('[data-testid="query-input"]')).not.toHaveValue('');
 });
 
 test('run button is disabled when query is empty', async ({ page }) => {
@@ -203,7 +202,7 @@ test('VRF selector populates from API', async ({ page }) => {
       },
     });
   });
-  await page.route('**/api/vrf/**', async route => {
+  await page.route('**/api/vrf/*/routes*', async route => {
     await route.fulfill({ json: { routes: [] } });
   });
   await page.goto('/vrf');

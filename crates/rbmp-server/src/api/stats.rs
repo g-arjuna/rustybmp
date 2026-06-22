@@ -14,7 +14,7 @@ pub async fn top_churn(
     let rows = state.queries.top_churning_prefixes(q.n)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(Json(json!({
-        "top_churn": rows.into_iter().map(|(p, c)| json!({"prefix": p, "events": c})).collect::<Vec<_>>()
+        "prefixes": rows.into_iter().map(|(p, c)| json!({"prefix": p, "events": c})).collect::<Vec<_>>()
     })))
 }
 
@@ -25,7 +25,7 @@ pub async fn as_origins(
     let rows = state.queries.as_origin_counts(q.n)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(Json(json!({
-        "origin_asns": rows.into_iter().map(|(asn, cnt)| json!({"asn": asn, "prefix_count": cnt})).collect::<Vec<_>>()
+        "origins": rows.into_iter().map(|(asn, cnt)| json!({"asn": asn, "prefix_count": cnt})).collect::<Vec<_>>()
     })))
 }
 
