@@ -169,14 +169,15 @@ fn parse_peer_up(buf: &[u8]) -> Result<BmpPayload> {
 
 fn bgp_open_pdu_len(buf: &[u8]) -> usize {
     if buf.len() < 19 { return buf.len(); }
-    u16::from_be_bytes([buf[17], buf[18]]) as usize
+    // BGP common header = marker(16) + length(2) + type(1)
+    u16::from_be_bytes([buf[16], buf[17]]) as usize
 }
 
 fn parse_bgp_open_pdu(buf: &[u8]) -> Result<BgpOpenInfo> {
     if buf.len() < 19 {
         return Err(Error::UnexpectedEof { needed: 19, have: buf.len() });
     }
-    let msg_len = u16::from_be_bytes([buf[17], buf[18]]) as usize;
+    let msg_len = u16::from_be_bytes([buf[16], buf[17]]) as usize;
     if buf.len() < msg_len {
         return Err(Error::UnexpectedEof { needed: msg_len, have: buf.len() });
     }

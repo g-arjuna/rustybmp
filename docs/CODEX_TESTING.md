@@ -81,13 +81,14 @@ cargo build -p rbmp-server --bins
 ./target/debug/rustybmp tests/scenarios/01_frr_minimal/configs/rustybmp.toml &
 SERVER_PID=$!
 sleep 1
-.venv/bin/python -m pytest tests/scenarios/01_frr_minimal/ -v --timeout=180 \
+.venv/bin/python -m pytest tests/scenarios/01_frr_minimal/ -v \
   --json-report --json-report-file=runtime/test_results/layer4.json
 EXIT=$?
 kill $SERVER_PID 2>/dev/null
 exit $EXIT
 # Pass: exit 0 + all TestFrrSmoke tests green
-# Current focus: refactor the scenario harness/topology so FRR talks to the host process instead of a `rustybmp:latest` lab node.
+# Current validated result on Ubuntu: 11 passed in ~8s with the host-process-first FRR scenario.
+# Notes: this environment does not currently provide the `pytest-timeout` plugin, so do not pass `--timeout=...` here unless that plugin is installed.
 # Final packaging gate (deferred): build the Docker image and rerun the scenario with the in-lab collector container.
 # Skip: if containerlab binary not found, tests auto-skip with pytest.mark.skipif
 ```
@@ -102,13 +103,14 @@ cargo build -p rbmp-server --bins
 ./target/debug/rustybmp tests/scenarios/02_xrd_rfc9972/configs/rustybmp.toml &
 SERVER_PID=$!
 sleep 1
-.venv/bin/python -m pytest tests/scenarios/02_xrd_rfc9972/ -v --timeout=300 \
+.venv/bin/python -m pytest tests/scenarios/02_xrd_rfc9972/ -v \
   --json-report --json-report-file=runtime/test_results/layer5.json
 EXIT=$?
 kill $SERVER_PID 2>/dev/null
 exit $EXIT
 # Pass: exit 0 + all TestXrdRfc9972 tests green
-# Current focus: adapt the scenario harness/topology to hit the host collector first, then return to containerized collector validation later.
+# Current focus: adapt the scenario harness/topology to hit the host collector first, following the now-validated Layer 4 FRR pattern.
+# Notes: this environment does not currently provide the `pytest-timeout` plugin, so do not pass `--timeout=...` here unless that plugin is installed.
 # Note: requires XRd license — skip in open CI
 ```
 

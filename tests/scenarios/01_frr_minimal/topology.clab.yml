@@ -7,18 +7,6 @@ mgmt:
 topology:
   nodes:
 
-    # ── rustybmp BMP collector ───────────────────────────────────────────────
-    collector:
-      kind: linux
-      image: rustybmp:latest
-      binds:
-        - ./configs/rustybmp.toml:/etc/rustybmp/rustybmp.toml:ro
-      ports:
-        - "15000:5000"   # BMP listener
-        - "17878:7878"   # HTTP API
-      env:
-        RUST_LOG: info,rbmp_server=debug
-
     # ── FRR router 1 (iBGP speaker, BMP sender) ─────────────────────────────
     frr1:
       kind: linux
@@ -44,7 +32,3 @@ topology:
   links:
     # frr1 ↔ frr2 (iBGP peering)
     - endpoints: ["frr1:eth1", "frr2:eth1"]
-    # frr1 → collector (BMP)
-    - endpoints: ["frr1:eth2", "collector:eth1"]
-    # frr2 → collector (BMP)
-    - endpoints: ["frr2:eth2", "collector:eth2"]

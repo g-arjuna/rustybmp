@@ -12,7 +12,7 @@ topology:
       kind: linux
       image: rustybmp:latest
       binds:
-        - ./configs/rustybmp.toml:/etc/rustybmp/rustybmp.toml:ro
+        - ./configs/rustybmp.toml:/app/rustybmp.toml:ro
       ports:
         - "25000:5000"   # BMP listener
         - "27878:7878"   # HTTP API

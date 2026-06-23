@@ -7,6 +7,27 @@
 
 ## Session Log
 
+### 2026-06-23 — Host-Process-First Layer 4 FRR Smoke Stabilization
+
+**Completed**: refactored the minimal FRR ContainerLab scenario to use a host-run `rustybmp` process instead of an in-lab collector container, validated the scenario end to end, and captured the parser/storage/API mismatches that the live FRR lab exposed.
+
+**Validation**:
+- `cargo build -p rbmp-server --bins`
+- `.venv/bin/python -m pytest tests/scenarios/01_frr_minimal/ -v --json-report --json-report-file=runtime/test_results/layer4.json`
+- Result: **11 passed in 8.43s**
+
+#### Decisions Made
+
+| # | Decision | Rationale |
+|---|----------|-----------|
+| D23 | Use host-process-first `rustybmp` for Layer 4/5 development instead of an in-lab collector container | Keeps the main test-development loop focused on BMP/API behavior rather than Docker packaging failures, and matches the updated testing strategy for this pass. |
+| D24 | Enable FRR BMP support in the Layer 4 scenario with `bgpd_options="-M bgpd_bmp"` | Live FRR 10.6.1 would accept BMP configuration syntax only after the BMP module was loaded; without it, speakers connected but BMP config failed at runtime. |
+| D25 | Keep FRR targeting the ContainerLab management gateway (`.1`) for host-run collector reachability | This matches the Bonsai lab pattern across FRR, SR Linux, and XRd scenarios and avoids adding a dedicated collector node just for development validation. |
+| D26 | Fix PeerUp OPEN parsing against live FRR bytes by reading the BGP length field at marker+16 | Raw BMP capture from FRR showed the previous offset was wrong, which produced bogus lengths and blocked peer/session progression beyond speaker connect. |
+| D27 | Change store writer inserts to use explicit column lists for `speaker_events` and `peer_events` | The live lab surfaced schema drift that would recur whenever tables gained columns; explicit column lists make these inserts forward-safe. |
+| D28 | Add static `Null0` routes for the FRR smoke prefixes | FRR `network` statements only advertise routes that already exist in the local RIB; without matching static routes, the smoke scenario had healthy peers but zero route announcements. |
+| D29 | Normalize `/api/peers` state labels and route query behavior to match the test/API contract | The smoke harness exposed response-shape mismatches (`Up` vs `up`, `asn` vs `peer_as`) and missing `prefix`/`action` handling in `/api/routes`. |
+
 ### 2026-06-19 — Sprint RV1 Implementation (Session 2, continued)
 
 **Completed**: wired `main.rs` + `receiver.rs` for archive/governor, built full Python SDK (RV1-7), created ContainerLab topology (RV1-8), ran `cargo build --workspace` — **zero errors, warnings only**.

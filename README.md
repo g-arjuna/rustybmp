@@ -2,7 +2,7 @@
 
 The best BMP/BGP collector on the planet. Written in Rust.
 
-**Sprint**: RV9 complete — 0 build errors, 101 Python tests passing. `cargo build --workspace` clean. All layers green.
+**Sprint**: RV9 complete, with Ubuntu host-process-first Layer 4 FRR smoke now green (`11 passed`). `cargo build --workspace` clean; Layer 5 XRd host-process-first adaptation remains the next lab checkpoint.
 
 ---
 

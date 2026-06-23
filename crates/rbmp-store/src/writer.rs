@@ -180,7 +180,10 @@ fn persist_one(conn: &duckdb::Connection, ev: &RibEvent) -> Result<()> {
         }
         RibEventPayload::PeerUp { peer_header, local_asn, remote_asn: _, hold_time, capabilities } => {
             conn.execute(
-                "INSERT INTO peer_events VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO peer_events (
+                    id, occurred_at, speaker_addr, peer_addr, peer_as,
+                    event_type, local_as, hold_time, capabilities, reason, collector_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 duckdb::params![
                     id, ts, spk,
                     peer_header.peer_address.to_string(),
@@ -190,12 +193,16 @@ fn persist_one(conn: &duckdb::Connection, ev: &RibEvent) -> Result<()> {
                     hold_time,
                     serde_json::to_string(capabilities).unwrap_or_default(),
                     duckdb::types::Null,
+                    duckdb::types::Null,
                 ],
             )?;
         }
         RibEventPayload::PeerDown { peer_header, reason } => {
             conn.execute(
-                "INSERT INTO peer_events VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO peer_events (
+                    id, occurred_at, speaker_addr, peer_addr, peer_as,
+                    event_type, local_as, hold_time, capabilities, reason, collector_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 duckdb::params![
                     id, ts, spk,
                     peer_header.peer_address.to_string(),
@@ -205,19 +212,32 @@ fn persist_one(conn: &duckdb::Connection, ev: &RibEvent) -> Result<()> {
                     duckdb::types::Null,
                     duckdb::types::Null,
                     reason,
+                    duckdb::types::Null,
                 ],
             )?;
         }
         RibEventPayload::SpeakerUp { sys_name, sys_descr } => {
             conn.execute(
-                "INSERT INTO speaker_events VALUES (?, ?, ?, ?, ?, ?, ?)",
-                duckdb::params![id, ts, spk, "speaker_up", sys_name, sys_descr, duckdb::types::Null],
+                "INSERT INTO speaker_events (
+                    id, occurred_at, speaker_addr, event_type,
+                    sys_name, sys_descr, reason, collector_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                duckdb::params![
+                    id, ts, spk, "speaker_up",
+                    sys_name, sys_descr, duckdb::types::Null, duckdb::types::Null
+                ],
             )?;
         }
         RibEventPayload::SpeakerDown { reason } => {
             conn.execute(
-                "INSERT INTO speaker_events VALUES (?, ?, ?, ?, ?, ?, ?)",
-                duckdb::params![id, ts, spk, "speaker_down", duckdb::types::Null, duckdb::types::Null, reason],
+                "INSERT INTO speaker_events (
+                    id, occurred_at, speaker_addr, event_type,
+                    sys_name, sys_descr, reason, collector_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                duckdb::params![
+                    id, ts, spk, "speaker_down",
+                    duckdb::types::Null, duckdb::types::Null, reason, duckdb::types::Null
+                ],
             )?;
         }
         RibEventPayload::Stats { peer_header, counters } => {

@@ -2,6 +2,15 @@ use axum::{extract::{Path, Query, State}, Json, http::StatusCode};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use crate::state::AppState;
+use rbmp_rib::session::PeerState;
+
+fn peer_state_label(state: PeerState) -> &'static str {
+    match state {
+        PeerState::Up => "up",
+        PeerState::Down => "down",
+        PeerState::Unknown => "unknown",
+    }
+}
 
 pub async fn list_speakers(State(state): State<AppState>) -> Json<Value> {
     let rib = state.rib.read().await;
@@ -45,7 +54,8 @@ pub async fn get_speaker(
             "peers": s.peers.values().map(|p| json!({
                 "addr":    p.peer_address.to_string(),
                 "asn":     p.peer_as,
-                "state":   format!("{:?}", p.state),
+                "peer_as": p.peer_as,
+                "state":   peer_state_label(p.state),
                 "up_at":   p.up_at.map(|t| t.to_rfc3339()),
                 "uptime_secs": p.uptime_secs(),
                 "flaps":   p.flap_count,
@@ -63,8 +73,9 @@ pub async fn list_peers(State(state): State<AppState>) -> Json<Value> {
             "speaker":   s.speaker_addr.to_string(),
             "addr":      p.peer_address.to_string(),
             "asn":       p.peer_as,
+            "peer_as":   p.peer_as,
             "bgp_id":    p.peer_bgp_id.to_string(),
-            "state":     format!("{:?}", p.state),
+            "state":     peer_state_label(p.state),
             "up_at":     p.up_at.map(|t| t.to_rfc3339()),
             "uptime_secs": p.uptime_secs(),
             "hold_time": p.hold_time,
@@ -87,8 +98,9 @@ pub async fn get_peer(
                 "speaker":   s.speaker_addr.to_string(),
                 "addr":      p.peer_address.to_string(),
                 "asn":       p.peer_as,
+                "peer_as":   p.peer_as,
                 "bgp_id":    p.peer_bgp_id.to_string(),
-                "state":     format!("{:?}", p.state),
+                "state":     peer_state_label(p.state),
                 "up_at":     p.up_at.map(|t| t.to_rfc3339()),
                 "down_at":   p.down_at.map(|t| t.to_rfc3339()),
                 "uptime_secs": p.uptime_secs(),

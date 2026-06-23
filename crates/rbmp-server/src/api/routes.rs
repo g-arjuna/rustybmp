@@ -6,6 +6,8 @@ use crate::state::AppState;
 #[derive(Debug, Deserialize)]
 pub struct RibQuery {
     pub rib_type: Option<String>,
+    pub prefix: Option<String>,
+    pub action: Option<String>,
     #[serde(default = "default_limit")]
     pub limit: usize,
 }
@@ -42,18 +44,29 @@ pub async fn list_routes(
     Query(q): Query<RibQuery>,
     State(state): State<AppState>,
 ) -> Json<Value> {
-    // Live in-memory RIB summary across all peers
+    // Live in-memory RIB summary across all peers.
+    // `action=announce` maps to the current RIB snapshot; other actions currently return empty.
+    if matches!(q.action.as_deref(), Some(action) if action != "announce") {
+        return Json(json!({ "routes": Vec::<Value>::new(), "count": 0 }));
+    }
+
     let rib = state.rib.read().await;
     let mut all_routes = Vec::new();
     for speaker in rib.speakers() {
         for (peer_addr, peer) in &speaker.peers {
             if let Some(rib_table) = rib.rib_for_peer(*peer_addr) {
                 for entry in rib_table.all_prefixes() {
+                    let prefix = entry.prefix.to_string();
+                    if let Some(filter_prefix) = q.prefix.as_deref() {
+                        if prefix != filter_prefix {
+                            continue;
+                        }
+                    }
                     all_routes.push(json!({
                         "speaker":   speaker.speaker_addr.to_string(),
                         "peer":      peer_addr.to_string(),
                         "peer_as":   peer.peer_as,
-                        "prefix":    entry.prefix.to_string(),
+                        "prefix":    prefix,
                         "next_hop":  entry.attributes.next_hop.map(|h| h.to_string()),
                         "as_path":   entry.attributes.as_path.as_ref().map(|p| p.to_string()),
                         "local_pref": entry.attributes.local_pref,

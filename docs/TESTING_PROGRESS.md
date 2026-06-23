@@ -1,5 +1,40 @@
 # RustyBMP Testing Progress
 
+## 2026-06-23 — Layer 4 FRR smoke stabilized with host-process-first flow
+
+Summary:
+- Refactored `tests/scenarios/01_frr_minimal/` to remove the in-lab `rustybmp:latest` collector dependency during the main testing pass.
+- Switched the FRR smoke scenario to start `rustybmp` as a host process and target the host via the ContainerLab management gateway.
+- Verified the Layer 4 scenario passes end to end with `.venv/bin/python -m pytest tests/scenarios/01_frr_minimal/ -v --json-report --json-report-file=runtime/test_results/layer4.json`.
+
+Key fixes discovered through the FRR lab:
+- FRR BMP support was not active in the scenario daemon config; enabling `bgpd_bmp` was required for live BMP sessions.
+- The FRR scenario prefixes were configured with `network ...` statements but had no matching local routes, so FRR never originated them until static `Null0` routes were added.
+- `rbmp-core` had a live-FRR PeerUp OPEN length parsing bug that misread the BGP length field offset.
+- `rbmp-store` still had schema drift in writer inserts for `speaker_events` and `peer_events`.
+- `/api/peers` and `/api/routes` had response/query mismatches that the smoke harness exposed once BMP sessions became healthy.
+
+Repo changes in this checkpoint:
+- `crates/rbmp-core/src/bmp/parser.rs`
+- `crates/rbmp-server/src/api/peers.rs`
+- `crates/rbmp-server/src/api/routes.rs`
+- `crates/rbmp-store/src/writer.rs`
+- `tests/scenarios/01_frr_minimal/configs/daemons`
+- `tests/scenarios/01_frr_minimal/configs/frr1.conf`
+- `tests/scenarios/01_frr_minimal/configs/frr2.conf`
+- `tests/scenarios/01_frr_minimal/configs/rustybmp.toml`
+- `tests/scenarios/01_frr_minimal/test_frr_smoke.py`
+- `tests/scenarios/01_frr_minimal/topology.clab.yml`
+
+Validation result:
+- Layer 4 FRR smoke: `11 passed in 8.43s`
+- Artifact: `runtime/test_results/layer4.json`
+
+Next recommended steps:
+1. Apply the same host-process-first pattern to `tests/scenarios/02_xrd_rfc9972/`.
+2. Keep Docker image build/debug deferred until Layer 4/5 behavior is stable.
+3. After XRd is adapted and validated, return to the in-lab collector image as a final packaging gate.
+
 ## 2026-06-23 — Lab strategy pivot before Layer 4/5 execution
 
 Summary:
