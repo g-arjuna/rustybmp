@@ -1,5 +1,23 @@
 # RustyBMP Testing Progress
 
+## 2026-06-23 — Lab strategy pivot before Layer 4/5 execution
+
+Summary:
+- Re-read the testing runbook and resumed the Layer 4 FRR smoke checkpoint.
+- Verified the missing scenario `rustybmp.toml` files and topology bind-path fixes were in place.
+- Confirmed host build still passes with `cargo build -p rbmp-server --bins`.
+- Attempted `docker build -t rustybmp:latest .` for the in-lab collector image and hit a builder-stage toolchain gap from `rdkafka-sys` (`c++` and make-program not available in the image build environment).
+- Decided to pivot the documented test strategy: during the main Layer 4/5 test-development pass, run `rustybmp` directly as a host process on Ubuntu and keep ContainerLab limited to router nodes. Defer image build/debug to a final packaging-validation pass.
+
+Why this pivot:
+- It removes image-build latency from the main testing loop.
+- It keeps scenario work focused on BMP/API behavior instead of Docker packaging issues.
+- It still preserves a later end-to-end image validation step once the lab scenarios are substantially stable.
+
+Docs updated for next session:
+- `docs/CODEX_TESTING.md` now describes Layer 4 and Layer 5 as host-process-first flows.
+- `RUSTYBMP_TESTING_STRATEGY.md` now treats containerized `rustybmp` as a final validation phase rather than the default development loop.
+
 ## 2026-06-22 — Ubuntu preliminary testing after RV9
 
 Environment:
@@ -70,7 +88,8 @@ Files changed in this testing pass:
 - `ui/tests/rustybmp.spec.ts`
 
 Next recommended steps:
-1. Start a fresh Codex session before ContainerLab-backed scenario work, so UI/debug logs do not bloat context.
-2. Layer 4 FRR smoke lab on this Ubuntu host. `docker` and `containerlab` are available here.
-3. Layer 5 XRd RFC 9972 lab if images/licenses are available.
-4. Separate audit of store writer vs schema drift, since `writer.rs` still appears to lag the current `route_events` schema.
+1. Start a fresh Codex session before more ContainerLab-backed scenario work, so lab logs do not bloat context.
+2. Refactor `tests/scenarios/01_frr_minimal/` so FRR can target a host-run `rustybmp` process instead of requiring a `rustybmp:latest` collector node.
+3. Apply the same host-process-first approach to `tests/scenarios/02_xrd_rfc9972/`.
+4. After Layer 4/5 scenario behavior is stable, return to the Docker image path as a final packaging-validation pass.
+5. Separate audit of store writer vs schema drift, since `writer.rs` still appears to lag the current `route_events` schema.

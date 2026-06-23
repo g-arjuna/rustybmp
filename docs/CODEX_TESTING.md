@@ -14,6 +14,7 @@ python3 -m venv .venv
 Notes:
 - On Ubuntu 24.04, system Python may be PEP 668 managed. Prefer a repo-local virtualenv over `pip3 install` into the system interpreter.
 - `cargo test --workspace -- --test-output immediate` is not valid for the current test binaries here. Use `cargo test --workspace` or `cargo test --workspace -- --nocapture`.
+- Current lab strategy: for Layer 4 and Layer 5 development, run `rustybmp` directly as a host process on Ubuntu and keep ContainerLab focused on the router side. Defer `docker build -t rustybmp:latest .` and image-based validation until the end of the major testing pass.
 
 ---
 
@@ -73,12 +74,21 @@ exit $EXIT
 
 ## Layer 4 — FRR Smoke Lab (<3min)
 ```
-# Requires: containerlab, docker, quay.io/frrouting/frr:10.6.1
+# Active strategy: host-process-first rustybmp, ContainerLab for FRR only
+# Requires: containerlab, docker (for FRR image), quay.io/frrouting/frr:10.6.1
 docker pull quay.io/frrouting/frr:10.6.1
-docker build -t rustybmp:latest .
-python3 -m pytest tests/scenarios/01_frr_minimal/ -v --timeout=180 \
+cargo build -p rbmp-server --bins
+./target/debug/rustybmp tests/scenarios/01_frr_minimal/configs/rustybmp.toml &
+SERVER_PID=$!
+sleep 1
+.venv/bin/python -m pytest tests/scenarios/01_frr_minimal/ -v --timeout=180 \
   --json-report --json-report-file=runtime/test_results/layer4.json
+EXIT=$?
+kill $SERVER_PID 2>/dev/null
+exit $EXIT
 # Pass: exit 0 + all TestFrrSmoke tests green
+# Current focus: refactor the scenario harness/topology so FRR talks to the host process instead of a `rustybmp:latest` lab node.
+# Final packaging gate (deferred): build the Docker image and rerun the scenario with the in-lab collector container.
 # Skip: if containerlab binary not found, tests auto-skip with pytest.mark.skipif
 ```
 
@@ -86,10 +96,19 @@ python3 -m pytest tests/scenarios/01_frr_minimal/ -v --timeout=180 \
 
 ## Layer 5 — XRd RFC 9972 Stats Lab (<5min)
 ```
-# Requires: containerlab, docker, ios-xr/xrd-control-plane:24.2.1 (Cisco license required)
-python3 -m pytest tests/scenarios/02_xrd_rfc9972/ -v --timeout=300 \
+# Active strategy: host-process-first rustybmp, ContainerLab for XRd only
+# Requires: containerlab, docker (for XRd image), ios-xr/xrd-control-plane:24.2.1 (Cisco license required)
+cargo build -p rbmp-server --bins
+./target/debug/rustybmp tests/scenarios/02_xrd_rfc9972/configs/rustybmp.toml &
+SERVER_PID=$!
+sleep 1
+.venv/bin/python -m pytest tests/scenarios/02_xrd_rfc9972/ -v --timeout=300 \
   --json-report --json-report-file=runtime/test_results/layer5.json
+EXIT=$?
+kill $SERVER_PID 2>/dev/null
+exit $EXIT
 # Pass: exit 0 + all TestXrdRfc9972 tests green
+# Current focus: adapt the scenario harness/topology to hit the host collector first, then return to containerized collector validation later.
 # Note: requires XRd license — skip in open CI
 ```
 

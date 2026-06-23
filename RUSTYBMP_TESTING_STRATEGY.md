@@ -38,8 +38,8 @@ Layer 0:  Rust unit tests          cargo test --workspace              <10s
 Layer 1:  Wiring checks            scripts/check_wiring.sh             <15s
 Layer 2:  Protocol integration     pytest tests/protocol/              <60s  (no clab, fixtures only)
 Layer 3:  API contract tests       pytest tests/api/                   <90s  (local server, no clab)
-Layer 4:  FRR smoke lab            pytest tests/scenarios/01_frr/      <3min (lightest clab)
-Layer 5:  Multi-NOS integration    pytest tests/scenarios/0N_*/        <15min (full clab scenarios)
+Layer 4:  FRR smoke lab            pytest tests/scenarios/01_frr/      <3min (host rustybmp + lightest clab)
+Layer 5:  Multi-NOS integration    pytest tests/scenarios/0N_*/        <15min (host rustybmp + clab scenarios)
 Layer 6:  Internet-scale load      python tests/load/mrt_replay.py     <30min (RouteViews full table)
 Layer 7:  UI end-to-end            npx playwright test                 <5min  (headless Chromium)
 ```
@@ -764,6 +764,21 @@ criterion_main!(benches);
 
 ## Part 8 — Layer 4: ContainerLab Scenarios
 
+### Active execution strategy: host-process-first
+
+For the main Layer 4 and Layer 5 development cycle, do **not** make a
+containerized `rustybmp` image a prerequisite. Run `rustybmp` directly on the
+Ubuntu host, let ContainerLab manage only the routers, and point the scenario
+toward the host listener/API. This keeps the debug loop centered on BMP/API
+behavior instead of Docker packaging latency.
+
+Use a two-phase model:
+
+1. **Primary development pass**: host-process-first `rustybmp`, ContainerLab
+   only for FRR/XRd/cEOS/etc.
+2. **Final packaging pass**: build `rustybmp:latest`, place the collector back
+   into the topology, and rerun the same scenarios as image-validation gates.
+
 ### The fundamental clab problem list and solutions
 
 Before writing any topology, address these known failure modes:
@@ -803,6 +818,10 @@ CI uses Tier 0 only. Developer machines use Tier 0 + Tier 1. Licensed hardware s
 ### Scenario 01: FRR Minimal (Tier 0, 30s boot, BMP smoke test)
 
 **Purpose**: Fastest possible verification that rustybmp receives BMP, parses peer events, stores routes.
+
+**Current development preference**: run `rustybmp` on the host first. Keep the
+example below as the deferred image-validation shape, not the default day-to-day
+loop while Layer 4 is still being debugged.
 
 ```yaml
 # tests/scenarios/01_frr_minimal/topology.clab.yml
@@ -916,6 +935,10 @@ def test_pre_and_post_policy_ribs_present(clab_frr_minimal):
 ### Scenario 02: XRd BGP Functional (Tier 1, RFC 9972 validation)
 
 **Purpose**: Validate RFC 9972 stats types 18-38 (the whole reason rustybmp was built), EVPN, ASPA.
+
+**Current development preference**: keep XRd inside ContainerLab, but run the
+collector as a host process until the scenario semantics are proven. Switch back
+to the collector image only for the final packaging/launch validation pass.
 
 ```yaml
 # tests/scenarios/02_xrd_functional/topology.clab.yml
@@ -1455,7 +1478,7 @@ jobs:
       - run: duckdb /tmp/test.duckdb ".read tests/fixtures/seed.sql" && pytest tests/api/ -v
 
   layer4_frr_smoke:
-    name: "Layer 4 — FRR smoke (clab)"
+    name: "Layer 4 — FRR smoke (host rustybmp + clab)"
     runs-on: ubuntu-24.04
     needs: layer3_api
     steps:
@@ -1465,7 +1488,13 @@ jobs:
       - name: Pull FRR image
         run: docker pull quay.io/frrouting/frr:10.6.1
       - run: cargo build --workspace
-      - run: pytest tests/scenarios/01_frr_minimal/ -v --timeout=120
+      - run: |
+          ./target/debug/rustybmp tests/scenarios/01_frr_minimal/configs/rustybmp.toml &
+          SERVER_PID=$!
+          pytest tests/scenarios/01_frr_minimal/ -v --timeout=120
+          EXIT=$?
+          kill $SERVER_PID 2>/dev/null || true
+          exit $EXIT
 
   layer7_ui:
     name: "Layer 7 — UI E2E"
