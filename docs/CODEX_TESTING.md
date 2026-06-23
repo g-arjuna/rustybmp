@@ -98,7 +98,7 @@ exit $EXIT
 ## Layer 5 — XRd RFC 9972 Stats Lab (<5min)
 ```
 # Active strategy: host-process-first rustybmp, ContainerLab for XRd only
-# Requires: containerlab, docker (for XRd image), ios-xr/xrd-control-plane:24.2.1 (Cisco license required)
+# Requires: containerlab, docker (for XRd image), ios-xr/xrd-control-plane:24.4.2 (Cisco license required)
 cargo build -p rbmp-server --bins
 ./target/debug/rustybmp tests/scenarios/02_xrd_rfc9972/configs/rustybmp.toml &
 SERVER_PID=$!
@@ -109,7 +109,12 @@ EXIT=$?
 kill $SERVER_PID 2>/dev/null
 exit $EXIT
 # Pass: exit 0 + all TestXrdRfc9972 tests green
-# Current focus: adapt the scenario harness/topology to hit the host collector first, following the now-validated Layer 4 FRR pattern.
+# Current validated checkpoint:
+#   - host-process-first XRd topology boots cleanly
+#   - BGP peering is up
+#   - BMP peer-up and route-monitoring updates reach the host collector
+#   - latest scenario result: 6 passed / 3 failed
+# Remaining known blocker: RFC 9972 stats are operationally sent by XRd but still not persisted by rustybmp (`/api/bmpstats/history` remains empty).
 # Notes: this environment does not currently provide the `pytest-timeout` plugin, so do not pass `--timeout=...` here unless that plugin is installed.
 # Note: requires XRd license — skip in open CI
 ```

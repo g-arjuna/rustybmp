@@ -7,6 +7,27 @@
 
 ## Session Log
 
+### 2026-06-23 — Layer 5 XRd Host-Process-First Bring-Up
+
+**Completed**: refactored the XRd RFC 9972 scenario away from an in-lab collector, switched it to the locally available XRd image, stabilized XRd boot/startup config, and validated BMP peer-up plus route-monitoring end to end against a host-run `rustybmp`.
+
+**Validation**:
+- Clean boot-path validation with host collector plus ContainerLab XRd topology
+- `.venv/bin/python -m pytest tests/scenarios/02_xrd_rfc9972/ -v --json-report --json-report-file=runtime/test_results/layer5.json`
+- Result after harness fixes: **6 passed, 3 failed**
+
+#### Decisions Made
+
+| # | Decision | Rationale |
+|---|----------|-----------|
+| D30 | Keep the Layer 5 XRd scenario on the host-process-first model and remove the in-lab `rustybmp` collector node | This preserves the same fast feedback loop that made Layer 4 productive and keeps Layer 5 focused on BMP/API behavior rather than Docker packaging. |
+| D31 | Use the locally available XRd image `ios-xr/xrd-control-plane:24.4.2` | This is the image actually present on the host, and it exposed version-specific startup-config behavior that had to be fixed directly rather than assumed from older XRd examples. |
+| D32 | Remove `XR_EVERY_BOOT_CONFIG` from the XRd ContainerLab topology | XRd 24.4.2 rejected that setting in this lab because the referenced startup file was not valid in the container's boot path, causing early boot failure. |
+| D33 | Normalize the XRd startup config to 24.4.2 syntax: `network` under AFI, `bmp server all route-monitoring inbound pre-policy`, and `neighbor ... bmp-activate server 1` | The older `bmp neighbor ... / bmp-servers 1` flow and out-of-AF `network` statements were rejected by XRd 24.4.2 even though the topology and reachability were otherwise correct. |
+| D34 | Raise XRd `flapping-delay` from `30` to `60` seconds | XRd 24.4.2 enforces a minimum accepted value of 60 for that knob; `30` caused startup-config rejection. |
+| D35 | Add `norecursedirs = clab-*` to `pytest.ini` | Once the XRd lab directory existed under the test tree, pytest began traversing router-owned paths and failed collection with permission errors before running the scenario itself. |
+| D36 | Treat the remaining Layer 5 failure as an application-side stats ingestion issue, not a topology issue | XRd operational state now shows `STATS-REPORT` plus `ROUTE-MON` messages being sent, while `rustybmp` still persists no stats rows. The topology and startup config are no longer the primary blocker. |
+
 ### 2026-06-23 — Host-Process-First Layer 4 FRR Smoke Stabilization
 
 **Completed**: refactored the minimal FRR ContainerLab scenario to use a host-run `rustybmp` process instead of an in-lab collector container, validated the scenario end to end, and captured the parser/storage/API mismatches that the live FRR lab exposed.
