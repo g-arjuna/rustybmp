@@ -14,8 +14,6 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use tracing::{debug, warn};
 
-const CACHE_TTL: Duration = Duration::from_secs(15 * 60);
-
 // ── Config ────────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Deserialize)]

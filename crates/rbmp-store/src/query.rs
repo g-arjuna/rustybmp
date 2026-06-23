@@ -868,7 +868,7 @@ impl QueryEngine {
                        path_status, path_reason, status_label, reason_label,
                        ROW_NUMBER() OVER (PARTITION BY prefix, peer_addr ORDER BY occurred_at DESC) AS rn
                 FROM path_markings
-                WHERE occurred_at >= NOW() - INTERVAL '5 minutes'
+                WHERE occurred_at >= {since_5m}
                   {afi_filter}
             ),
             filtered_prefixes AS (
@@ -885,7 +885,8 @@ impl QueryEngine {
             JOIN filtered_prefixes fp ON l.prefix = fp.prefix
             WHERE l.rn = 1
             ORDER BY l.prefix, l.peer_addr
-            LIMIT {limit}"#
+            LIMIT {limit}"#,
+            since_5m = now_minus("5 minutes")
         );
 
         let rows = conn.prepare(&sql)?.query_map([], |row| {
@@ -921,9 +922,10 @@ impl QueryEngine {
                FROM path_markings
                WHERE prefix = '{prefix}'
                  AND peer_addr = '{peer_addr}'
-                 AND occurred_at >= NOW() - INTERVAL '{hours} hours'
+                 AND occurred_at >= {since_expr}
                ORDER BY occurred_at DESC
-               LIMIT {limit}"#
+               LIMIT {limit}"#,
+            since_expr = now_minus(&format!("{hours} hours"))
         );
         let rows = conn.prepare(&sql)?.query_map([], |row| {
             Ok(PathMarkingRow {
@@ -955,10 +957,11 @@ impl QueryEngine {
                       MAX(occurred_at) AS last_down
                FROM peer_events
                WHERE event_type = 'peer_down'
-                 AND occurred_at >= NOW() - INTERVAL '{hours} hours'
+                 AND occurred_at >= {since_expr}
                GROUP BY peer_addr, speaker_addr
                ORDER BY down_count DESC
-               LIMIT {limit}"#
+               LIMIT {limit}"#,
+            since_expr = now_minus(&format!("{hours} hours"))
         );
         let rows = conn.prepare(&sql)?.query_map([], |row| {
             Ok(serde_json::json!({
@@ -975,6 +978,13 @@ impl QueryEngine {
     pub fn rpki_invalids(&self, speaker: Option<&str>, limit: usize) -> Result<Vec<serde_json::Value>> {
         let locked = self.store.lock().unwrap();
         let conn   = locked.conn();
+        let has_rpki_validity: bool = conn.query_row(
+            "SELECT COUNT(*) > 0 FROM information_schema.columns WHERE table_name = 'route_events' AND column_name = 'rpki_validity'",
+            [], |row| row.get(0),
+        ).unwrap_or(false);
+        if !has_rpki_validity {
+            return Ok(Vec::new());
+        }
         let speaker_filter = speaker
             .map(|s| format!("AND speaker_addr = '{s}'"))
             .unwrap_or_default();

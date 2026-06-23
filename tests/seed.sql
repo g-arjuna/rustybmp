@@ -6,42 +6,53 @@
 -- ── Tables (mirror rbmp_store schema) ────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS route_events (
-    occurred_at   TIMESTAMPTZ NOT NULL,
-    speaker_addr  VARCHAR     NOT NULL,
-    peer_addr     VARCHAR     NOT NULL,
-    peer_as       UINTEGER    NOT NULL,
-    rib_type      VARCHAR     NOT NULL,
-    action        VARCHAR     NOT NULL,
-    prefix        VARCHAR     NOT NULL,
-    afi           VARCHAR     NOT NULL,
-    origin        VARCHAR,
-    as_path       VARCHAR,
-    as_path_len   USMALLINT,
-    next_hop      VARCHAR,
-    local_pref    UINTEGER,
-    med           UINTEGER,
-    communities   VARCHAR,
-    rpki_validity VARCHAR
+    id              UUID        NOT NULL,
+    occurred_at     TIMESTAMPTZ NOT NULL,
+    speaker_addr    VARCHAR     NOT NULL,
+    peer_addr       VARCHAR     NOT NULL,
+    peer_as         UINTEGER    NOT NULL,
+    rib_type        VARCHAR     NOT NULL,
+    action          VARCHAR     NOT NULL,
+    prefix          VARCHAR     NOT NULL,
+    afi             VARCHAR     NOT NULL,
+    origin          VARCHAR,
+    as_path         VARCHAR,
+    as_path_len     USMALLINT,
+    next_hop        VARCHAR,
+    local_pref      UINTEGER,
+    med             UINTEGER,
+    communities     VARCHAR,
+    ext_communities VARCHAR,
+    large_communities VARCHAR,
+    originator_id   VARCHAR,
+    atomic_aggregate BOOLEAN DEFAULT false,
+    only_to_customer UINTEGER,
+    collector_id    VARCHAR
 );
 
 CREATE TABLE IF NOT EXISTS peer_events (
-    occurred_at  TIMESTAMPTZ NOT NULL,
-    speaker_addr VARCHAR     NOT NULL,
-    peer_addr    VARCHAR     NOT NULL,
-    peer_as      UINTEGER,
-    event_type   VARCHAR     NOT NULL,
-    hold_time    USMALLINT,
-    reason       VARCHAR
+    id              UUID        NOT NULL,
+    occurred_at     TIMESTAMPTZ NOT NULL,
+    speaker_addr    VARCHAR     NOT NULL,
+    peer_addr       VARCHAR     NOT NULL,
+    peer_as         UINTEGER,
+    event_type      VARCHAR     NOT NULL,
+    local_as        UINTEGER,
+    hold_time       USMALLINT,
+    capabilities    VARCHAR,
+    reason          VARCHAR,
+    collector_id    VARCHAR
 );
 
 CREATE TABLE IF NOT EXISTS ml_anomalies (
-    detected_at  TIMESTAMPTZ NOT NULL,
-    kind         VARCHAR     NOT NULL,
-    prefix       VARCHAR,
-    peer_addr    VARCHAR,
-    score        DOUBLE,
-    description  VARCHAR,
-    severity     VARCHAR
+    id          INTEGER,
+    detected_at TIMESTAMPTZ NOT NULL,
+    kind        VARCHAR     NOT NULL,
+    prefix      VARCHAR,
+    peer_addr   VARCHAR,
+    score       DOUBLE,
+    description VARCHAR,
+    severity    VARCHAR
 );
 
 CREATE TABLE IF NOT EXISTS convergence_events (

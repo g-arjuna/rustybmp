@@ -109,8 +109,10 @@ fn persist_one(conn: &duckdb::Connection, ev: &RibEvent) -> Result<()> {
             });
             let afi = format!("{}", rc.prefix.addr_family().as_u16());
 
+            let otc = attrs.as_ref().and_then(|a| a.only_to_customer);
+
             conn.execute(
-                "INSERT INTO route_events VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO route_events VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 duckdb::params![
                     id, ts, spk,
                     rc.peer_header.peer_address.to_string(),
@@ -130,6 +132,8 @@ fn persist_one(conn: &duckdb::Connection, ev: &RibEvent) -> Result<()> {
                     large_communities,
                     attrs.as_ref().and_then(|a| a.originator_id).map(|o| o.to_string()),
                     attrs.as_ref().map(|a| a.atomic_aggregate).unwrap_or(false),
+                    otc,
+                    duckdb::types::Null,  // collector_id — populated by collector protocol layer
                 ],
             )?;
 

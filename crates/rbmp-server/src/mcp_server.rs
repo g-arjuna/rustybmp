@@ -63,7 +63,7 @@ pub static ANOMALY_CATALOGUE: &[AnomalyMeta] = &[
         description: "Route leak — private or customer prefix propagated to unexpected peer",
         severity:    "critical",
         verification_queries: &[
-            "SELECT as_path FROM route_events WHERE peer_addr = '{peer}' AND occurred_at > NOW() - INTERVAL '5 minutes' ORDER BY occurred_at DESC LIMIT 3",
+            "SELECT as_path FROM route_events WHERE peer_addr = '{peer}' AND occurred_at > CAST(NOW() AS TIMESTAMP) - INTERVAL '5 minutes' ORDER BY occurred_at DESC LIMIT 3",
         ],
     },
     AnomalyMeta {
@@ -79,7 +79,7 @@ pub static ANOMALY_CATALOGUE: &[AnomalyMeta] = &[
         description: "Route announced with RPKI-invalid origin ASN or prefix length",
         severity:    "high",
         verification_queries: &[
-            "SELECT prefix, as_path, rpki_validity FROM route_events WHERE rpki_validity = 'invalid' AND occurred_at > NOW() - INTERVAL '1 hour' ORDER BY occurred_at DESC LIMIT 10",
+            "SELECT prefix, as_path, rpki_validity FROM route_events WHERE rpki_validity = 'invalid' AND occurred_at > CAST(NOW() AS TIMESTAMP) - INTERVAL '1 hour' ORDER BY occurred_at DESC LIMIT 10",
         ],
     },
     AnomalyMeta {
@@ -87,7 +87,7 @@ pub static ANOMALY_CATALOGUE: &[AnomalyMeta] = &[
         description: "BGP peer or prefix flapping repeatedly within a short window",
         severity:    "warn",
         verification_queries: &[
-            "SELECT peer_addr, COUNT(*) AS flap_count FROM peer_events WHERE event_type IN ('peer_up','peer_down') AND occurred_at > NOW() - INTERVAL '1 hour' GROUP BY peer_addr HAVING COUNT(*) > 4 ORDER BY flap_count DESC",
+            "SELECT peer_addr, COUNT(*) AS flap_count FROM peer_events WHERE event_type IN ('peer_up','peer_down') AND occurred_at > CAST(NOW() AS TIMESTAMP) - INTERVAL '1 hour' GROUP BY peer_addr HAVING COUNT(*) > 4 ORDER BY flap_count DESC",
         ],
     },
 ];

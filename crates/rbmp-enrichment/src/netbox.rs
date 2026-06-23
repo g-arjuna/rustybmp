@@ -14,8 +14,6 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use tracing::{debug, warn};
 
-const CACHE_TTL: Duration = Duration::from_secs(15 * 60);
-
 // ── Config ────────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Deserialize)]
@@ -43,6 +41,7 @@ pub struct NetboxDevice {
 
 #[derive(Debug, Deserialize)]
 struct NetboxApiResponse {
+    #[allow(dead_code)]
     count: usize,
     results: Vec<NetboxDeviceResult>,
 }
@@ -58,6 +57,7 @@ struct NetboxDeviceResult {
 #[derive(Debug, Deserialize)]
 struct NetboxRef {
     name: Option<String>,
+    #[allow(dead_code)]
     slug: Option<String>,
 }
 

@@ -52,7 +52,7 @@ fn sweep(conn: &duckdb::Connection, retain_days: u32) -> Result<usize, duckdb::E
     let mut total = 0usize;
     for table in &tables {
         let sql = format!(
-            "DELETE FROM {table} WHERE occurred_at < NOW() - INTERVAL '{retain_days}' DAY"
+            "DELETE FROM {table} WHERE occurred_at < CAST(NOW() AS TIMESTAMP) - INTERVAL '{retain_days}' DAY"
         );
         let n = conn.execute(&sql, [])?;
         total += n;
