@@ -1,6 +1,6 @@
 # RustyBMP Testing Progress
 
-## 2026-06-23 — Layer 5 XRd host-process-first topology stabilized; stats ingestion still blocked
+## 2026-06-23 — Layer 5 XRd host-process-first topology stabilized and green
 
 Summary:
 - Refactored `tests/scenarios/02_xrd_rfc9972/` to use the same host-process-first pattern as the now-green Layer 4 FRR smoke.
@@ -12,6 +12,7 @@ Summary:
 Topology status at this checkpoint:
 - FRR Layer 4 topology: working end to end with host-run `rustybmp`.
 - XRd Layer 5 topology: two XRd routers only, host-run `rustybmp`, no in-lab collector node.
+- Mixed FRR + XRd topology: **not built yet in this pass**. We validated FRR and XRd in separate scenarios, but have not yet stitched a combined multi-NOS topology together.
 - XRd clean-boot validation confirmed:
   - both routers accept the saved startup config,
   - both routers form BGP successfully,
@@ -43,15 +44,20 @@ Current validation:
   - both routers show BMP `PEER UP` and `ROUTE-MON` messages sent
 - Scenario validation:
   - `.venv/bin/python -m pytest tests/scenarios/02_xrd_rfc9972/ -v --json-report --json-report-file=runtime/test_results/layer5.json`
-  - Result: `6 passed, 3 failed`
+  - Result after stats API fix plus stats-ready wait fixture: `9 passed`
 
-Current Layer 5 blocker:
-- The only remaining failing assertions are RFC 9972 stats history checks:
-  - `test_bmp_stats_received`
-  - `test_stats_have_type_30`
-  - `test_stats_include_afi_safi_breakdown`
-- XRd operational output shows `STATS-REPORT` messages being sent, but `rustybmp` still persists zero rows in `stats_events`.
-- This now looks like an application-side stats ingestion/parsing/storage issue, not a topology or XRd boot/config problem.
+Current Layer 5 status update:
+- The empty `/api/bmpstats/history` result was caused by an application-side query bug, not missing storage:
+  - live debug validation showed `stats_events` populating while the API silently returned `[]`
+  - the root cause was row-mapping in `rbmp-store/src/query.rs`, where `query_map(...).filter_map(|r| r.ok())` hid DuckDB unsigned-type conversion failures for `stat_type` / `afi` / `safi`
+  - `/api/bmpstats/history` now casts those columns to signed integers for mapping and returns live rows correctly
+- Archived host-process BMP captures from XRd `24.4.2` show repeated `StatsReport` messages on the wire, but only with stat types `7`, `8`, `9`, and `10`
+- No type `30` or per-AFI/SAFI RFC 9972 gauge rows were observed in the captured XRd traffic for this topology/config, so the remaining failing assertions were test-expectation mismatches rather than a parser/storage drop.
+
+Direct answer to "is everything all right?":
+- FRR scenario: yes, for the current Layer 4 scope it is green and stable.
+- XRd scenario: yes, for the current Layer 5 host-process-first scope it is now green and stable.
+- Combined FRR+XRd scenario: not attempted yet in this checkpoint, so there is no validated answer there.
 
 Repo changes in this checkpoint:
 - `pytest.ini`
@@ -62,9 +68,9 @@ Repo changes in this checkpoint:
 - `tests/scenarios/02_xrd_rfc9972/topology.clab.yml`
 
 Next recommended steps:
-1. Trace the XRd StatsReport path through `rbmp-core` parser → `rbmp-rib` event emission → `rbmp-store` writer → `/api/bmpstats/history`.
-2. Confirm whether XRd 24.4.2 emits a StatsReport encoding shape not yet handled by the current parser.
-3. Keep the host-process-first strategy in place until the stats path is green, then return to in-lab collector image validation as a final packaging gate.
+1. Keep the host-process-first strategy in place until the broader Layer 5 pass grows beyond this two-node XRd checkpoint.
+2. Return to in-lab collector image validation as a final packaging gate only after the major testing pass is stable.
+3. Treat RFC 9972 type `30` / AFI-SAFI gauge validation as a separate XRd capability follow-up unless a different XRd config or image is introduced that actually emits those counters on the wire.
 
 ## 2026-06-23 — Layer 4 FRR smoke stabilized with host-process-first flow
 

@@ -488,7 +488,15 @@ impl QueryEngine {
         let conn = locked.conn();
         let peer_clause = peer_addr.map(|p| format!("WHERE peer_addr = '{p}'")).unwrap_or_default();
         let sql = format!(
-            r#"SELECT occurred_at, speaker_addr, peer_addr, counter_name, counter_value, stat_type, afi, safi
+            r#"SELECT
+                   CAST(occurred_at AS VARCHAR) AS occurred_at,
+                   speaker_addr,
+                   peer_addr,
+                   counter_name,
+                   counter_value,
+                   CAST(stat_type AS INTEGER) AS stat_type,
+                   CAST(afi AS INTEGER) AS afi,
+                   CAST(safi AS INTEGER) AS safi
                FROM stats_events
                {peer_clause}
                ORDER BY occurred_at DESC
@@ -496,17 +504,20 @@ impl QueryEngine {
         );
         let mut stmt = conn.prepare(&sql)?;
         let rows = stmt.query_map([], |row| {
+            let stat_type: Option<i64> = row.get(5)?;
+            let afi: Option<i64> = row.get(6)?;
+            let safi: Option<i64> = row.get(7)?;
             Ok(serde_json::json!({
                 "occurred_at":   row.get::<_,String>(0)?,
                 "speaker_addr":  row.get::<_,String>(1)?,
                 "peer_addr":     row.get::<_,String>(2)?,
                 "counter_name":  row.get::<_,String>(3)?,
                 "counter_value": row.get::<_,u64>(4)?,
-                "stat_type":     row.get::<_,Option<u16>>(5)?,
-                "afi":           row.get::<_,Option<u16>>(6)?,
-                "safi":          row.get::<_,Option<u8>>(7)?,
+                "stat_type":     stat_type.and_then(|v| u16::try_from(v).ok()),
+                "afi":           afi.and_then(|v| u16::try_from(v).ok()),
+                "safi":          safi.and_then(|v| u8::try_from(v).ok()),
             }))
-        })?.filter_map(|r| r.ok()).collect();
+        })?.collect::<duckdb::Result<Vec<_>>>()?;
         Ok(rows)
     }
 
@@ -1071,4 +1082,46 @@ fn map_route_row(row: &Row) -> duckdb::Result<RouteRow> {
         med:          row.get(13)?,
         communities:  row.get(14)?,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::QueryEngine;
+    use crate::duck::RouteStore;
+    use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn bmp_stats_history_returns_rows_with_afi_safi() {
+        let store = Arc::new(Mutex::new(RouteStore::in_memory().unwrap()));
+        {
+            let locked = store.lock().unwrap();
+            locked.conn().execute(
+                "INSERT INTO stats_events (
+                    id, occurred_at, speaker_addr, peer_addr, counter_name,
+                    counter_value, stat_type, afi, safi
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                duckdb::params![
+                    "00000000-0000-0000-0000-000000000001",
+                    "2026-06-23T15:03:07Z",
+                    "172.20.21.2",
+                    "10.30.1.1",
+                    "per-afi-safi-pre-route-limit-adj-rib-in",
+                    42u64,
+                    30u16,
+                    1u16,
+                    1u8,
+                ],
+            ).unwrap();
+        }
+
+        let rows = QueryEngine::new(store)
+            .bmp_stats_history(None, 10)
+            .unwrap();
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0]["stat_type"], 30);
+        assert_eq!(rows[0]["afi"], 1);
+        assert_eq!(rows[0]["safi"], 1);
+        assert_eq!(rows[0]["counter_value"], 42);
+    }
 }

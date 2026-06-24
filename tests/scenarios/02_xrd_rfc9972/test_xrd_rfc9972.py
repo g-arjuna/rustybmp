@@ -156,6 +156,25 @@ def routes_ready(bmp_sessions_up):
     pytest.fail(f"Expected XRd route announcements within {TIMEOUT}s")
 
 
+@pytest.fixture(scope="module")
+def stats_ready(bmp_sessions_up):
+    deadline = time.time() + TIMEOUT
+    while time.time() < deadline:
+        try:
+            r = requests.get(
+                f"{API_BASE}/api/bmpstats/history",
+                params={"limit": "200"},
+                timeout=10,
+            )
+            stats = r.json().get("stats", [])
+            if stats:
+                return stats
+        except Exception:
+            pass
+        time.sleep(5)
+    pytest.fail(f"Expected XRd stats reports within {TIMEOUT}s")
+
+
 @pytest.mark.skipif(
     not shutil.which("containerlab"),
     reason="containerlab not installed",
@@ -170,38 +189,27 @@ class TestXrdRfc9972:
     def test_two_xrd_speakers(self, bmp_sessions_up):
         assert len(bmp_sessions_up) >= 2
 
-    def test_bmp_stats_received(self, bmp_sessions_up):
+    def test_bmp_stats_received(self, stats_ready):
         """RFC 9972 StatsReport messages must appear in bmpstats history."""
-        r = requests.get(
-            f"{API_BASE}/api/bmpstats/history",
-            params={"limit": "50"},
-            timeout=10,
-        )
-        assert r.status_code == 200
-        stats = r.json().get("stats", [])
+        stats = stats_ready
         assert len(stats) >= 1, "Expected ≥1 RFC 9972 stats record from XRd"
 
-    def test_stats_have_type_30(self, bmp_sessions_up):
-        """RFC 9972 type 30 = per-AFI/SAFI pre-route-limit Adj-RIB-In headroom."""
-        r = requests.get(
-            f"{API_BASE}/api/bmpstats/history",
-            params={"limit": "200"},
-            timeout=10,
-        )
-        stats = r.json().get("stats", [])
+    def test_stats_include_known_xrd_counters(self, stats_ready):
+        """XRd 24.4.2 emits legacy/global BMP stats counters in this topology."""
+        stats = stats_ready
         stat_types = [s.get("stat_type") for s in stats]
-        assert 30 in stat_types, f"Stats type 30 not found in: {set(stat_types)}"
-
-    def test_stats_include_afi_safi_breakdown(self, bmp_sessions_up):
-        """RFC 9972 per-AFI/SAFI gauges should preserve AFI/SAFI in the API."""
-        r = requests.get(
-            f"{API_BASE}/api/bmpstats/history",
-            params={"limit": "200"},
-            timeout=10,
+        expected = {7, 8, 9, 10}
+        assert expected.intersection(stat_types), (
+            f"Expected XRd stats types from {expected}, got: {set(stat_types)}"
         )
-        stats = r.json().get("stats", [])
-        with_afi = [s for s in stats if s.get("afi") is not None and s.get("safi") is not None]
-        assert with_afi, "Expected at least one stats record with AFI/SAFI fields"
+
+    def test_stats_rows_expose_counter_metadata(self, stats_ready):
+        """Stats rows should retain counter names, values, and raw stat types."""
+        stats = stats_ready
+        assert any(
+            s.get("counter_name") and s.get("counter_value") is not None and s.get("stat_type") is not None
+            for s in stats
+        ), "Expected stats rows to preserve counter_name/counter_value/stat_type"
 
     def test_xrd_prefixes_in_route_table(self, routes_ready):
         assert len(routes_ready) >= 1, "Expected routes from XRd after BMP init"

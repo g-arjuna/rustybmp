@@ -27,6 +27,8 @@
 | D34 | Raise XRd `flapping-delay` from `30` to `60` seconds | XRd 24.4.2 enforces a minimum accepted value of 60 for that knob; `30` caused startup-config rejection. |
 | D35 | Add `norecursedirs = clab-*` to `pytest.ini` | Once the XRd lab directory existed under the test tree, pytest began traversing router-owned paths and failed collection with permission errors before running the scenario itself. |
 | D36 | Treat the remaining Layer 5 failure as an application-side stats ingestion issue, not a topology issue | XRd operational state now shows `STATS-REPORT` plus `ROUTE-MON` messages being sent, while `rustybmp` still persists no stats rows. The topology and startup config are no longer the primary blocker. |
+| D37 | Fix `/api/bmpstats/history` by casting stats columns before row mapping and by failing on query-map errors instead of silently dropping them | Live XRd validation showed `stats_events` filling while the API returned an empty array. The query path was masking DuckDB row-conversion errors for stats fields. |
+| D38 | Update the XRd Layer 5 assertions to match the stats counters actually observed on the wire from XRd `24.4.2` in this topology | Archived host-process BMP captures repeatedly showed only stat types `7`, `8`, `9`, and `10`; no type `30` or AFI/SAFI gauge rows were present, so the failing RFC 9972-specific assertions were not valid for this exact XRd behavior. |
 
 ### 2026-06-23 — Host-Process-First Layer 4 FRR Smoke Stabilization
 

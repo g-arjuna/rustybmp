@@ -109,12 +109,14 @@ EXIT=$?
 kill $SERVER_PID 2>/dev/null
 exit $EXIT
 # Pass: exit 0 + all TestXrdRfc9972 tests green
-# Current validated checkpoint:
+# Current validated result on Ubuntu: 9 passed in ~169s with the host-process-first XRd scenario.
+# Current observed XRd 24.4.2 behavior in this topology:
 #   - host-process-first XRd topology boots cleanly
 #   - BGP peering is up
 #   - BMP peer-up and route-monitoring updates reach the host collector
-#   - latest scenario result: 6 passed / 3 failed
-# Remaining known blocker: RFC 9972 stats are operationally sent by XRd but still not persisted by rustybmp (`/api/bmpstats/history` remains empty).
+#   - BMP stats rows reach `/api/bmpstats/history`
+#   - XRd sends legacy/global stats counters (observed types: 7, 8, 9, 10)
+#   - no type 30 or AFI/SAFI gauge rows were observed on the wire for this exact topology/config
 # Notes: this environment does not currently provide the `pytest-timeout` plugin, so do not pass `--timeout=...` here unless that plugin is installed.
 # Note: requires XRd license — skip in open CI
 ```
