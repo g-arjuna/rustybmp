@@ -1,0 +1,26 @@
+name: cross-vendor-frr-xrd
+
+mgmt:
+  network: cross-vendor-frr-xrd-mgmt
+  ipv4-subnet: 172.20.23.0/24
+
+topology:
+  nodes:
+    frr1:
+      kind: linux
+      image: quay.io/frrouting/frr:10.6.1
+      binds:
+        - ./configs/frr1.conf:/etc/frr/frr.conf:ro
+        - ./configs/daemons:/etc/frr/daemons:ro
+      env:
+        TINI_SUBREAPER: "1"
+      exec:
+        - /bin/bash /etc/frr/start.sh
+
+    pe1:
+      kind: cisco_xrd
+      image: ios-xr/xrd-control-plane:24.4.2
+      startup-config: configs/pe1.cfg
+
+  links:
+    - endpoints: ["frr1:eth1", "pe1:Gi0-0-0-0"]

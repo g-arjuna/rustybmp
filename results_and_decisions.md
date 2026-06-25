@@ -7,6 +7,72 @@
 
 ## Session Log
 
+### 2026-06-25 — Cross-Vendor FRR ↔ XRd IPv4 Multicast Expansion
+
+**Completed**: extended the direct FRR↔XRd host-process-first lab with one more AFI/SAFI checkpoint, `ipv4 multicast`, and validated the observed multicast behavior without disturbing the existing IPv4 and IPv6 unicast coverage.
+
+**Validation**:
+- `.venv/bin/python -m pytest tests/scenarios/04_cross_vendor_frr_xrd/ -v --json-report --json-report-file=runtime/test_results/layer5_cross_vendor.json`
+- Result: **15 passed in 73.26s**
+
+#### Decisions Made
+
+| # | Decision | Rationale |
+|---|----------|-----------|
+| D46 | Use `ipv4 multicast` as the next AFI/SAFI expansion in the existing two-node FRR↔XRd lab | This adds another real address-family checkpoint while keeping the topology and BMP debug surface small. |
+| D47 | Treat XRd-originated IPv4 multicast route visibility as the validated checkpoint, rather than requiring full multicast symmetry immediately | Live BMP/API inspection showed XRd-originated multicast prefixes becoming queryable while FRR-originated multicast prefixes were not observed symmetrically in the same checkpoint, so the scenario now asserts the behavior actually proven by the lab. |
+
+### 2026-06-25 — Cross-Vendor FRR ↔ XRd Dual-Stack Expansion
+
+**Completed**: expanded the direct FRR↔XRd host-process-first lab to validate IPv6 alongside IPv4, fixed the IPv6 prefix design and XRd IPv6 BGP startup layout, and revalidated the strengthened cross-vendor checkpoint.
+
+**Validation**:
+- `.venv/bin/python -m pytest tests/scenarios/04_cross_vendor_frr_xrd/ -v --json-report --json-report-file=runtime/test_results/layer5_cross_vendor.json`
+- Result at the dual-stack checkpoint: **13 passed in 67.91s**
+
+#### Decisions Made
+
+| # | Decision | Rationale |
+|---|----------|-----------|
+| D43 | Deepen the existing two-node FRR↔XRd cross-vendor lab with IPv6 before adding more topology | This expands protocol coverage while keeping the debug surface small and preserving the already-validated mixed-vendor adjacency. |
+| D44 | Change the IPv6 test prefixes from `/48` to distinct `/64` networks | The original `/48` prefixes collapsed to the same canonical network and made the test expectations ambiguous, so they were not suitable as deterministic route assertions. |
+| D45 | Reorder XRd's IPv6 BGP startup config so the global IPv6 address-family block appears before the IPv6 neighbor subtree | XRd 24.4.2 rejected the initial IPv6 startup layout, while the reordered structure matched the working IPv4 pattern and allowed the dual-stack checkpoint to pass. |
+
+### 2026-06-24 — Cross-Vendor FRR ↔ XRd eBGP Checkpoint
+
+**Completed**: added the first direct FRR↔XRd eBGP ContainerLab scenario under the host-process-first strategy, fixed a live AS_PATH parser compatibility issue it exposed, and reran the existing Layer 4/5 lab regressions after the parser change.
+
+**Validation**:
+- `cargo test -p rbmp-core parse_as_path -- --nocapture`
+- `.venv/bin/python -m pytest tests/scenarios/04_cross_vendor_frr_xrd/ -v --json-report --json-report-file=runtime/test_results/layer5_cross_vendor.json`
+- `.venv/bin/python -m pytest tests/scenarios/01_frr_minimal/ -v --json-report --json-report-file=runtime/test_results/layer4.json`
+- `.venv/bin/python -m pytest tests/scenarios/02_xrd_rfc9972/ -v --json-report --json-report-file=runtime/test_results/layer5.json`
+- `.venv/bin/python -m pytest tests/scenarios/03_mixed_frr_xrd/ -v --json-report --json-report-file=runtime/test_results/layer5_mixed.json`
+- Results: **2 parser tests passed, 10 cross-vendor scenario tests passed at the initial IPv4 checkpoint, 11 FRR scenario tests passed, 9 XRd scenario tests passed, 10 shared mixed scenario tests passed**
+
+#### Decisions Made
+
+| # | Decision | Rationale |
+|---|----------|-----------|
+| D41 | Make the next mixed-NOS expansion a direct two-node FRR↔XRd eBGP scenario instead of immediately building a larger multi-adjacency topology | This isolates true cross-vendor control-plane interoperability with lower blast radius and faster iteration than a larger topology would. |
+| D42 | Add a compatibility fallback in `parse_as_path()` so a failed 2-byte AS_PATH decode is retried as 4-byte ASN encoding on the same attribute bytes | The new cross-vendor lab exposed live XRd-originated route-monitoring updates that failed AS_PATH parsing during eBGP route exchange; the fallback restored route visibility and remained green across the existing FRR-only, XRd-only, and shared mixed regressions. |
+
+### 2026-06-24 — Mixed FRR + XRd Host-Process-First Checkpoint
+
+**Completed**: added the first combined FRR + XRd ContainerLab scenario under the host-process-first strategy and validated concurrent multi-vendor BMP ingestion against one host-run `rustybmp`.
+
+**Validation**:
+- `cargo build -p rbmp-server --bins`
+- `.venv/bin/python -m pytest tests/scenarios/03_mixed_frr_xrd/ -v --json-report --json-report-file=runtime/test_results/layer5_mixed.json`
+- Result: **10 passed in 168.98s**
+
+#### Decisions Made
+
+| # | Decision | Rationale |
+|---|----------|-----------|
+| D39 | Build the first mixed-NOS checkpoint as one shared collector with the existing FRR pair and XRd pair, rather than introducing new cross-vendor BGP adjacencies immediately | This validates concurrent multi-vendor BMP/API behavior with lower risk and preserves the current testing strategy's focus on stable scenario expansion rather than new interoperability debugging. |
+| D40 | Treat XRd route visibility in the mixed lab as a readiness concern and wait for vendor-specific prefixes directly | The first mixed run showed all four speakers up, all four peers up, and XRd stats present before XRd route prefixes were queryable through `/api/routes`, so a one-time route snapshot was too early for this combined scenario. |
+
 ### 2026-06-23 — Layer 5 XRd Host-Process-First Bring-Up
 
 **Completed**: refactored the XRd RFC 9972 scenario away from an in-lab collector, switched it to the locally available XRd image, stabilized XRd boot/startup config, and validated BMP peer-up plus route-monitoring end to end against a host-run `rustybmp`.

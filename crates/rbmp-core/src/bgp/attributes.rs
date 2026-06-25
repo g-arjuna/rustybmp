@@ -189,20 +189,36 @@ pub fn parse_path_attributes(mut buf: impl Buf) -> Result<PathAttributes> {
 
 /// Parse AS_PATH or AS4_PATH attribute.
 /// four_byte: true for AS4_PATH (all ASNs are 4 bytes), false for AS_PATH (2 bytes unless AS4 cap negotiated).
-pub fn parse_as_path(mut buf: &[u8], four_byte: bool) -> Result<AsPath> {
+pub fn parse_as_path(buf: &[u8], four_byte: bool) -> Result<AsPath> {
+    if four_byte {
+        return parse_as_path_with_asn_size(buf, 4);
+    }
+
+    match parse_as_path_with_asn_size(buf, 2) {
+        Ok(path) => Ok(path),
+        Err(original_err) => {
+            // Some live speakers encode AS_PATH with 4-byte ASNs on the wire once
+            // 4-byte ASN capability is negotiated, even when the values themselves
+            // still fit inside 16 bits. Fall back so mixed-vendor eBGP route
+            // monitoring does not fail on an otherwise valid update.
+            parse_as_path_with_asn_size(buf, 4).or(Err(original_err))
+        }
+    }
+}
+
+fn parse_as_path_with_asn_size(mut buf: &[u8], asn_size: usize) -> Result<AsPath> {
     let mut segments = Vec::new();
     while buf.len() >= 2 {
         let seg_type = buf[0];
         let seg_len  = buf[1] as usize;
         buf = &buf[2..];
-        let asn_size = if four_byte { 4 } else { 2 };
         let needed = seg_len * asn_size;
         if buf.len() < needed {
             return Err(Error::UnexpectedEof { needed, have: buf.len() });
         }
         let mut asns: Vec<u32> = Vec::new();
         for i in 0..seg_len {
-            let asn = if four_byte {
+            let asn = if asn_size == 4 {
                 u32::from_be_bytes(buf[i*4..(i+1)*4].try_into().unwrap())
             } else {
                 u16::from_be_bytes(buf[i*2..(i+1)*2].try_into().unwrap()) as u32
@@ -455,4 +471,39 @@ pub fn parse_bgpsec_path(buf: &[u8]) -> BgpsecPath {
     }
 
     BgpsecPath { signing_asns, sig_block_count, raw }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{parse_as_path, AsPath, AsPathSegment};
+
+    #[test]
+    fn parse_as_path_accepts_two_byte_encoding() {
+        let buf = [
+            2, 2, // AS_SEQUENCE with 2 ASNs
+            0xFD, 0x4C, // 64844
+            0xFD, 0x4D, // 64845
+        ];
+
+        let parsed = parse_as_path(&buf, false).unwrap();
+        assert_eq!(
+            parsed,
+            AsPath(vec![AsPathSegment::Sequence(vec![64844, 64845])])
+        );
+    }
+
+    #[test]
+    fn parse_as_path_falls_back_to_four_byte_encoding() {
+        let buf = [
+            2, 2, // AS_SEQUENCE with 2 ASNs
+            0x00, 0x00, 0xFD, 0x4C, // 64844
+            0x00, 0x00, 0xFD, 0x4D, // 64845
+        ];
+
+        let parsed = parse_as_path(&buf, false).unwrap();
+        assert_eq!(
+            parsed,
+            AsPath(vec![AsPathSegment::Sequence(vec![64844, 64845])])
+        );
+    }
 }

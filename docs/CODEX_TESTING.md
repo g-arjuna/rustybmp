@@ -123,6 +123,55 @@ exit $EXIT
 
 ---
 
+## Layer 5b — Mixed FRR + XRd Multi-NOS Lab (<5min)
+```
+# Active strategy: host-process-first rustybmp, ContainerLab for FRR + XRd only
+# Requires: containerlab, docker, quay.io/frrouting/frr:10.6.1, ios-xr/xrd-control-plane:24.4.2
+cargo build -p rbmp-server --bins
+./target/debug/rustybmp tests/scenarios/03_mixed_frr_xrd/configs/rustybmp.toml &
+SERVER_PID=$!
+sleep 1
+.venv/bin/python -m pytest tests/scenarios/03_mixed_frr_xrd/ -v \
+  --json-report --json-report-file=runtime/test_results/layer5_mixed.json
+EXIT=$?
+kill $SERVER_PID 2>/dev/null
+exit $EXIT
+# Pass: exit 0 + all TestMixedFrrXrd tests green
+# Current validated result on Ubuntu: 10 passed in ~169s
+# Notes:
+#   - this is the first combined mixed-NOS checkpoint in the current pass
+#   - topology uses one host collector with separate FRR and XRd pairings in the same lab
+#   - XRd routes in the mixed lab may become queryable slightly later than FRR routes, so the scenario waits on vendor-specific prefixes rather than a single early route snapshot
+```
+
+---
+
+## Layer 5c — Cross-Vendor FRR ↔ XRd eBGP Lab (<5min)
+```
+# Active strategy: host-process-first rustybmp, ContainerLab for FRR + XRd only
+# Requires: containerlab, docker, quay.io/frrouting/frr:10.6.1, ios-xr/xrd-control-plane:24.4.2
+cargo build -p rbmp-server --bins
+./target/debug/rustybmp tests/scenarios/04_cross_vendor_frr_xrd/configs/rustybmp.toml &
+SERVER_PID=$!
+sleep 1
+.venv/bin/python -m pytest tests/scenarios/04_cross_vendor_frr_xrd/ -v \
+  --json-report --json-report-file=runtime/test_results/layer5_cross_vendor.json
+EXIT=$?
+kill $SERVER_PID 2>/dev/null
+exit $EXIT
+# Pass: exit 0 + all TestCrossVendorFrrXrd tests green
+# Current validated result on Ubuntu: 15 passed in ~73s
+# Notes:
+#   - this is the first direct FRR↔XRd BGP adjacency checkpoint in the current pass
+#   - both routers export BMP to one host-run rustybmp collector
+#   - the current checkpoint validates IPv4 unicast, IPv6 unicast, and XRd-originated IPv4 multicast visibility
+#   - this scenario exposed a live AS_PATH compatibility issue, so rbmp-core now falls back to 4-byte AS_PATH decoding when 2-byte decoding fails on the same attribute bytes
+#   - XRd 24.4.2 accepted the IPv6 BGP startup config only after the global IPv6 address-family block was ordered before the IPv6 neighbor subtree
+#   - the first IPv4 multicast attempt was asymmetric: XRd-originated multicast routes were visible, while FRR-originated multicast routes were not observed symmetrically in the same checkpoint
+```
+
+---
+
 ## Layer 7 — UI End-to-End Playwright (<5min)
 ```
 # Requires: server running + UI deps installed + Playwright Chromium installed

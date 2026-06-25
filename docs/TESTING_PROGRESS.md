@@ -1,5 +1,157 @@
 # RustyBMP Testing Progress
 
+## 2026-06-25 — Cross-vendor FRR ↔ XRd scenario expanded with IPv4 multicast and green
+
+Summary:
+- Expanded `tests/scenarios/04_cross_vendor_frr_xrd/` again to exercise one more AFI/SAFI in the same direct FRR↔XRd lab: `ipv4 multicast`.
+- Kept the same host-process-first two-node topology and layered the multicast family on top of the already-green IPv4 unicast and IPv6 unicast checkpoint.
+- Validated that XRd-originated IPv4 multicast routes become queryable through the host collector alongside the existing IPv4 and IPv6 checkpoints.
+
+Current validation:
+- `.venv/bin/python -m pytest tests/scenarios/04_cross_vendor_frr_xrd/ -v --json-report --json-report-file=runtime/test_results/layer5_cross_vendor.json`
+- Result: `15 passed`
+
+Key finding:
+- The first multicast attempt showed asymmetric observed behavior:
+  - XRd-originated IPv4 multicast prefixes were visible through BMP and `/api/routes`
+  - FRR-originated IPv4 multicast prefixes were not observed symmetrically in the same checkpoint
+- The test now asserts the multicast behavior that was actually validated on this topology: XRd-originated IPv4 multicast route visibility, while keeping the direct FRR↔XRd IPv4 unicast and IPv6 unicast assertions intact.
+
+Repo changes in this checkpoint:
+- `tests/scenarios/04_cross_vendor_frr_xrd/configs/frr1.conf`
+- `tests/scenarios/04_cross_vendor_frr_xrd/configs/pe1.cfg`
+- `tests/scenarios/04_cross_vendor_frr_xrd/test_cross_vendor_frr_xrd.py`
+
+Next recommended steps:
+1. Keep `tests/scenarios/04_cross_vendor_frr_xrd/` as the richest cross-vendor regression checkpoint now that it covers IPv4 unicast, IPv6 unicast, and XRd-originated IPv4 multicast visibility.
+2. In the next session, either:
+   - broaden Layer 5 to another NOS/topology checkpoint, or
+   - move upward to deferred packaging/in-lab `rustybmp` validation.
+3. Treat FRR-originated IPv4 multicast route visibility as a separate capability follow-up if we want full symmetry for that address family.
+
+## 2026-06-25 — Cross-vendor FRR ↔ XRd scenario expanded to IPv4 + IPv6 and green
+
+Summary:
+- Expanded `tests/scenarios/04_cross_vendor_frr_xrd/` from an IPv4-only cross-vendor checkpoint into a dual-stack IPv4 + IPv6 direct FRR↔XRd eBGP scenario.
+- Kept the same host-process-first and two-node topology shape, which let the address-family expansion stay focused on control-plane and BMP behavior rather than topology complexity.
+- Validated IPv4 and IPv6 route visibility for both vendors through the host collector, while preserving the already-green BMP stats and API endpoint checks.
+
+Current validation:
+- `.venv/bin/python -m pytest tests/scenarios/04_cross_vendor_frr_xrd/ -v --json-report --json-report-file=runtime/test_results/layer5_cross_vendor.json`
+- Result at the dual-stack checkpoint: `13 passed`
+
+Key finding:
+- The first IPv6 attempt failed for two separate, useful reasons:
+  - the original XRd IPv6 test prefixes used `/48`, which collapsed distinct hextets into the same canonical network and made the assertions misleading
+  - XRd 24.4.2 rejected the first IPv6 BGP startup layout when the IPv6 neighbor section appeared before the global IPv6 address-family block
+- The working checkpoint now uses distinct `/64` IPv6 test prefixes and mirrors XRd's already-working IPv4 BGP structure by placing the global IPv6 `address-family` block before the IPv6 neighbor subtree.
+
+Repo changes in this checkpoint:
+- `tests/scenarios/04_cross_vendor_frr_xrd/configs/frr1.conf`
+- `tests/scenarios/04_cross_vendor_frr_xrd/configs/pe1.cfg`
+- `tests/scenarios/04_cross_vendor_frr_xrd/test_cross_vendor_frr_xrd.py`
+
+Next recommended steps:
+1. Keep `tests/scenarios/04_cross_vendor_frr_xrd/` as the primary deep cross-vendor regression checkpoint for both IPv4 and IPv6.
+2. Decide whether the next Layer 5 expansion should add another address family to the same lab or introduce another NOS/topology checkpoint.
+3. Keep Docker packaging and in-lab collector validation deferred until the current scenario set remains stable.
+
+## 2026-06-24 — Cross-vendor FRR ↔ XRd eBGP scenario added and green
+
+Summary:
+- Added `tests/scenarios/04_cross_vendor_frr_xrd/` as the first direct mixed-vendor BGP adjacency scenario in this testing pass.
+- Kept the host-process-first strategy intact: `rustybmp` runs on Ubuntu and ContainerLab is limited to the FRR and XRd router nodes.
+- Validated direct FRR↔XRd eBGP convergence, concurrent BMP export from both routers, route visibility from both vendors, and XRd stats through the same host collector.
+- Fixed a live BMP route-monitoring parser compatibility issue exposed by this scenario: non-empty XRd eBGP AS_PATH attributes could fail decoding during mixed-vendor route exchange.
+
+Topology status at this checkpoint:
+- FRR Layer 4 topology: green.
+- XRd Layer 5 topology: green.
+- Mixed FRR + XRd shared-collector topology: green.
+- Cross-vendor FRR ↔ XRd direct eBGP topology: green.
+- In-lab `rustybmp` collector container validation: still deferred.
+
+Current validation:
+- Parser compatibility fix validation:
+  - `cargo test -p rbmp-core parse_as_path -- --nocapture`
+  - Result: `2 passed`
+- New cross-vendor scenario:
+  - `cargo build -p rbmp-server --bins`
+  - `.venv/bin/python -m pytest tests/scenarios/04_cross_vendor_frr_xrd/ -v --json-report --json-report-file=runtime/test_results/layer5_cross_vendor.json`
+  - Result at the initial IPv4 checkpoint: `10 passed`
+- Post-fix regression reruns:
+  - `.venv/bin/python -m pytest tests/scenarios/01_frr_minimal/ -v --json-report --json-report-file=runtime/test_results/layer4.json`
+  - Result: `11 passed`
+  - `.venv/bin/python -m pytest tests/scenarios/02_xrd_rfc9972/ -v --json-report --json-report-file=runtime/test_results/layer5.json`
+  - Result: `9 passed`
+  - `.venv/bin/python -m pytest tests/scenarios/03_mixed_frr_xrd/ -v --json-report --json-report-file=runtime/test_results/layer5_mixed.json`
+  - Result: `10 passed`
+
+Key finding:
+- The XRd-only scenario stayed green earlier because its route-monitoring path did not exercise a non-empty cross-vendor eBGP AS_PATH in the same way.
+- The new FRR↔XRd direct scenario exposed a parser edge in `crates/rbmp-core/src/bgp/attributes.rs`, where AS_PATH decoding could fail on live XRd-originated eBGP route-monitoring updates.
+- `parse_as_path()` now retries the same attribute as 4-byte ASN encoding when the 2-byte decode fails, which restored route visibility for the direct FRR↔XRd lab without regressing the existing FRR-only, XRd-only, or mixed shared-collector scenarios.
+
+Repo changes in this checkpoint:
+- `crates/rbmp-core/src/bgp/attributes.rs`
+- `tests/scenarios/04_cross_vendor_frr_xrd/configs/daemons`
+- `tests/scenarios/04_cross_vendor_frr_xrd/configs/frr1.conf`
+- `tests/scenarios/04_cross_vendor_frr_xrd/configs/pe1.cfg`
+- `tests/scenarios/04_cross_vendor_frr_xrd/configs/rustybmp.toml`
+- `tests/scenarios/04_cross_vendor_frr_xrd/test_cross_vendor_frr_xrd.py`
+- `tests/scenarios/04_cross_vendor_frr_xrd/topology.clab.yml`
+
+Next recommended steps:
+1. Keep the four current host-process-first scenario checkpoints green when BMP/API/store/parser behavior changes:
+   - `tests/scenarios/01_frr_minimal/`
+   - `tests/scenarios/02_xrd_rfc9972/`
+   - `tests/scenarios/03_mixed_frr_xrd/`
+   - `tests/scenarios/04_cross_vendor_frr_xrd/`
+2. Decide whether the next Layer 5 expansion should be another vendor/topology checkpoint or a deeper cross-vendor scenario with more than one adjacency or address family.
+3. Keep Docker packaging and in-lab collector validation deferred until the broader scenario pass remains stable.
+
+## 2026-06-24 — Mixed FRR + XRd host-process-first topology added and green
+
+Summary:
+- Added `tests/scenarios/03_mixed_frr_xrd/` as the first combined multi-NOS scenario in this testing pass.
+- Kept the host-process-first strategy intact: `rustybmp` runs on Ubuntu, while ContainerLab is limited to FRR and XRd router nodes.
+- Combined the existing FRR pair and XRd pair into one shared management network so a single host collector validates concurrent multi-vendor BMP ingestion.
+- Validated that mixed-NOS speakers, peers, routes, and XRd stats all become visible through the same API surface.
+
+Topology status at this checkpoint:
+- FRR Layer 4 topology: green.
+- XRd Layer 5 topology: green.
+- Mixed FRR + XRd topology: green with host-run `rustybmp`.
+- In-lab `rustybmp` collector container validation: still deferred.
+
+Current validation:
+- `cargo build -p rbmp-server --bins`
+- `.venv/bin/python -m pytest tests/scenarios/03_mixed_frr_xrd/ -v --json-report --json-report-file=runtime/test_results/layer5_mixed.json`
+- Result: `10 passed`
+
+Key mixed-topology finding:
+- The first mixed run brought up all four speakers, all four peers, and XRd stats successfully, but XRd route assertions were still racing the combined-lab convergence window.
+- The mixed scenario now waits for vendor-specific prefixes directly instead of asserting from an earlier route snapshot.
+- In practice, that means XRd routes in the shared lab can become queryable slightly later than FRR routes even after `/api/speakers`, `/api/peers`, and `/api/bmpstats/history` are already healthy.
+
+Repo changes in this checkpoint:
+- `tests/scenarios/03_mixed_frr_xrd/configs/daemons`
+- `tests/scenarios/03_mixed_frr_xrd/configs/frr1.conf`
+- `tests/scenarios/03_mixed_frr_xrd/configs/frr2.conf`
+- `tests/scenarios/03_mixed_frr_xrd/configs/pe1.cfg`
+- `tests/scenarios/03_mixed_frr_xrd/configs/pe2.cfg`
+- `tests/scenarios/03_mixed_frr_xrd/configs/rustybmp.toml`
+- `tests/scenarios/03_mixed_frr_xrd/test_mixed_frr_xrd.py`
+- `tests/scenarios/03_mixed_frr_xrd/topology.clab.yml`
+
+Next recommended steps:
+1. Keep the three current host-process-first scenario checkpoints green when BMP/API/store query behavior changes:
+   - `tests/scenarios/01_frr_minimal/`
+   - `tests/scenarios/02_xrd_rfc9972/`
+   - `tests/scenarios/03_mixed_frr_xrd/`
+2. If we want a richer mixed-NOS checkpoint, decide whether to introduce actual cross-vendor BGP adjacencies instead of the current "shared collector, separate vendor pairings" topology.
+3. Keep Docker packaging and in-lab collector validation deferred until the broader scenario pass remains stable.
+
 ## 2026-06-23 — Layer 5 XRd host-process-first topology stabilized and green
 
 Summary:
